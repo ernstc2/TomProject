@@ -58,8 +58,25 @@ def get_connection(cfg):
     # Fallback: pyodbc
     if conn is None:
         import pyodbc  # type: ignore
+
+        # Pick the best available ODBC driver
+        available = pyodbc.drivers()
+        driver = None
+        for candidate in [
+            "ODBC Driver 18 for SQL Server",
+            "ODBC Driver 17 for SQL Server",
+            "SQL Server",
+        ]:
+            if candidate in available:
+                driver = candidate
+                break
+        if driver is None:
+            raise RuntimeError(
+                f"No SQL Server ODBC driver found. Available: {available}"
+            )
+
         conn_str = (
-            "DRIVER={ODBC Driver 17 for SQL Server};"
+            f"DRIVER={{{driver}}};"
             f"SERVER={server};"
             f"DATABASE={database};"
             f"UID={username};"
