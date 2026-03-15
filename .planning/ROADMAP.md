@@ -32,8 +32,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans:** 2/2 plans complete
 
 Plans:
-- [ ] 01-01-PLAN.md — Project scaffold: config loading, rotating logger, main entry point, test infrastructure
-- [ ] 01-02-PLAN.md — Database connection, UPDATE+INSERT upsert, integration tests, end-to-end verification
+- [x] 01-01-PLAN.md — Project scaffold: config loading, rotating logger, main entry point, test infrastructure
+- [x] 01-02-PLAN.md — Database connection, UPDATE+INSERT upsert, integration tests, end-to-end verification
 
 ### Phase 2: Transform
 **Goal**: A function accepts a raw comma-delimited CSV file path and returns a clean, validated DataFrame with quotes stripped and correct columns present — verified with sample data including edge cases
@@ -43,7 +43,11 @@ Plans:
   1. A comma-delimited CSV containing quoted fields produces a DataFrame where all quotes are removed from every field
   2. The parser correctly handles comma delimiters, double-quoted fields, and the header row
   3. A CSV missing one of the required columns (NIIN, REQUIREMENTS_STATEMENT, MRC, CLEAR_TEXT_REPLY) causes the script to exit with code 1 and log the missing column name
-**Plans**: TBD
+**Plans:** 2 plans
+
+Plans:
+- [ ] 02-01-PLAN.md — Core CSV transform: delimiter detection, quote handling, column validation (TDD)
+- [ ] 02-02-PLAN.md — Date conversion (dd-MMM-yy to YYYY-MM-DD) and pipeline wiring (TDD)
 
 ### Phase 3: Extract
 **Goal**: A function downloads the characteristics.zip from the live DLA FLIS site, validates it is a real zip, and returns the path to the extracted CSV — verified against the actual DLA URL on the deployment machine
@@ -74,6 +78,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation and Load | 2/2 | Complete   | 2026-03-15 |
-| 2. Transform | 0/TBD | Not started | - |
+| 2. Transform | 0/2 | Planning complete | - |
 | 3. Extract | 0/TBD | Not started | - |
 | 4. Integration and Scheduler | 0/TBD | Not started | - |
