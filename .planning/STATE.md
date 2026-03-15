@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: planning
-stopped_at: Completed 02-transform 02-02-PLAN.md
-last_updated: "2026-03-15T22:10:04.155Z"
+stopped_at: Completed 03-extract 03-01-PLAN.md
+last_updated: "2026-03-15T22:31:15.296Z"
 last_activity: 2026-03-13 — Roadmap created
 progress:
   total_phases: 4
-  completed_phases: 2
-  total_plans: 4
-  completed_plans: 4
+  completed_phases: 3
+  total_plans: 5
+  completed_plans: 5
   percent: 0
 ---
 
@@ -55,6 +55,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01-foundation-and-load P02 | 60 | 3 tasks | 6 files |
 | Phase 02-transform P01 | 201 | 2 tasks | 2 files |
 | Phase 02-transform P02 | 8 | 2 tasks | 4 files |
+| Phase 03-extract P01 | 2 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -78,6 +79,9 @@ Recent decisions affecting current work:
 - [Phase 02-transform]: keep_default_na=False — prevents empty cells converting to NaN in upsert string comparisons
 - [Phase 02-transform]: Dynamic _PIVOT = date.today().year % 100 — pivot recalculates automatically each year without code changes
 - [Phase 02-transform]: csv_path from cfg[paths][csv_path] — config INI [paths] section; consistent with existing INI pattern
+- [Phase 03-extract]: Browser User-Agent header stored as HEADERS constant -- DLA CDN returns 403 to default Python User-Agent
+- [Phase 03-extract]: download_url in config.ini [paths] -- not hardcoded so Tom can update URL without code changes
+- [Phase 03-extract]: zipfile.is_zipfile() as DL-02 guard -- magic number is authoritative vs content-type header
 
 ### Pending Todos
 
@@ -92,6 +96,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-15T22:09:59.116Z
-Stopped at: Completed 02-transform 02-02-PLAN.md
+Last session: 2026-03-15T22:31:15.294Z
+Stopped at: Completed 03-extract 03-01-PLAN.md
 Resume file: None
