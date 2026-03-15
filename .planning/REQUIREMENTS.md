@@ -22,10 +22,10 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Load
 
-- [ ] **LD-01**: Script upserts data into SQL Server keyed on NIIN (insert new, update changed, skip unchanged)
-- [ ] **LD-02**: Script uses UPDATE+INSERT pattern (not MERGE) for upsert
-- [ ] **LD-03**: Script handles varchar(max) columns without silent truncation
-- [ ] **LD-04**: Script wraps upsert in a transaction and rolls back on failure
+- [x] **LD-01**: Script upserts data into SQL Server keyed on NIIN (insert new, update changed, skip unchanged)
+- [x] **LD-02**: Script uses UPDATE+INSERT pattern (not MERGE) for upsert
+- [x] **LD-03**: Script handles varchar(max) columns without silent truncation
+- [x] **LD-04**: Script wraps upsert in a transaction and rolls back on failure
 
 ### Operations
 
@@ -77,10 +77,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | TF-02 | Phase 2 | Pending |
 | TF-03 | Phase 2 | Pending |
 | TF-04 | Phase 2 | Pending |
-| LD-01 | Phase 1 | Pending |
-| LD-02 | Phase 1 | Pending |
-| LD-03 | Phase 1 | Pending |
-| LD-04 | Phase 1 | Pending |
+| LD-01 | Phase 1 | Complete |
+| LD-02 | Phase 1 | Complete |
+| LD-03 | Phase 1 | Complete |
+| LD-04 | Phase 1 | Complete |
 | OP-01 | Phase 1 | Complete |
 | OP-02 | Phase 1 | Complete |
 | OP-03 | Phase 1 | Complete |
