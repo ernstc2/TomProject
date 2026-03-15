@@ -16,6 +16,8 @@ class _MockConn:
 
 def test_main_exits_0_on_success(tmp_config, tmp_log_dir, monkeypatch):
     """main() exits with code 0 when config is valid and DB calls succeed."""
+    import pandas as pd
+
     real_load_config = importer.load_config
 
     def patched_load_config(path="config.ini"):
@@ -24,17 +26,29 @@ def test_main_exits_0_on_success(tmp_config, tmp_log_dir, monkeypatch):
         if "logging" not in cfg:
             cfg["logging"] = {}
         cfg["logging"]["log_dir"] = str(tmp_log_dir)
+        # Provide csv_path now required by main()
+        if "paths" not in cfg:
+            cfg["paths"] = {}
+        cfg["paths"]["csv_path"] = "dummy.csv"
         return cfg
 
     mock_conn = _MockConn()
 
     monkeypatch.setattr(importer, "load_config", patched_load_config)
+    monkeypatch.setattr(
+        importer,
+        "load_csv",
+        lambda path, logger=None: pd.DataFrame([
+            {"NIIN": "T01", "MRC": "A",
+             "REQUIREMENTS_STATEMENT": "Req", "CLEAR_TEXT_REPLY": "Reply"},
+        ]),
+    )
     monkeypatch.setattr(importer, "get_connection", lambda cfg: mock_conn)
     monkeypatch.setattr(importer, "ensure_table", lambda conn, table: None)
     monkeypatch.setattr(
         importer,
         "upsert_batch",
-        lambda conn, table, rows, logger: {"inserted": 3, "updated": 0},
+        lambda conn, table, rows, logger: {"inserted": 1, "updated": 0},
     )
 
     with pytest.raises(SystemExit) as exc_info:

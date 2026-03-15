@@ -11,6 +11,7 @@ import sys
 from logging.handlers import RotatingFileHandler
 
 from db import get_connection, ensure_table, upsert_batch
+from transform import load_csv
 
 
 def load_config(path="config.ini"):
@@ -76,8 +77,9 @@ def setup_logger(log_dir, max_bytes=10_485_760, backup_count=5, logger_name="pub
 def main():
     """Top-level orchestrator.
 
-    Loads config, sets up logging, connects to SQL Server, ensures the target
-    table exists, upserts 3 test rows, and logs results.
+    Loads config, sets up logging, reads the CSV via load_csv() (which applies
+    date conversion), connects to SQL Server, ensures the target table exists,
+    upserts all rows, and logs results.
     Exits with code 0 on success, code 1 on any error.
     """
     conn = None
@@ -101,29 +103,15 @@ def main():
         ensure_table(conn, table)
         logger.info("Table %s ensured", table)
 
-        # Upsert 3 test rows
-        test_rows = [
-            {
-                "NIIN": "TEST000001",
-                "MRC": "A",
-                "REQUIREMENTS_STATEMENT": "Test requirement 1",
-                "CLEAR_TEXT_REPLY": "Test reply 1",
-            },
-            {
-                "NIIN": "TEST000001",
-                "MRC": "B",
-                "REQUIREMENTS_STATEMENT": "Test requirement 2",
-                "CLEAR_TEXT_REPLY": "Test reply 2",
-            },
-            {
-                "NIIN": "TEST000002",
-                "MRC": "A",
-                "REQUIREMENTS_STATEMENT": "Test requirement 3",
-                "CLEAR_TEXT_REPLY": "Test reply 3",
-            },
-        ]
+        # Load the CSV and convert dates
+        csv_path = cfg["paths"]["csv_path"]
+        df = load_csv(csv_path, logger)
+        logger.info("Loaded %d rows from %s", len(df), csv_path)
 
-        result = upsert_batch(conn, table, test_rows, logger)
+        # Convert DataFrame rows to list of dicts for upsert
+        rows = df.to_dict(orient="records")
+
+        result = upsert_batch(conn, table, rows, logger)
         logger.info(
             "Upsert complete: inserted=%d updated=%d",
             result["inserted"],
