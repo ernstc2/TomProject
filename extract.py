@@ -1,0 +1,135 @@
+"""Extract module -- download characteristics.zip, validate, and extract CSV."""
+
+import logging
+import os
+import zipfile
+
+import requests
+
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    )
+}
+
+_log = logging.getLogger(__name__)
+
+
+def _download_file(url, dest_path, logger, timeout=120):
+    """Download *url* to *dest_path* using a browser User-Agent header.
+
+    Streams response in 64 KB chunks to avoid holding the full file in memory
+    (V_CHARACTERISTICS.CSV is ~2.9 GB uncompressed).
+
+    Args:
+        url: Direct download URL for the zip file.
+        dest_path: Local file path to write the downloaded bytes into.
+        logger: stdlib logger for error messages.
+        timeout: HTTP request timeout in seconds (default 120).
+
+    Raises:
+        SystemExit(1): On HTTP error (4xx/5xx) or network error.
+    """
+    try:
+        with requests.get(url, headers=HEADERS, stream=True, timeout=timeout) as resp:
+            resp.raise_for_status()
+            with open(dest_path, "wb") as fh:
+                for chunk in resp.iter_content(chunk_size=65536):
+                    if chunk:
+                        fh.write(chunk)
+    except requests.HTTPError as exc:
+        logger.error("HTTP error downloading zip: %s", exc)
+        raise SystemExit(1) from exc
+    except requests.RequestException as exc:
+        logger.error("Network error downloading zip: %s", exc)
+        raise SystemExit(1) from exc
+
+
+def _validate_zip(path, logger):
+    """Raise SystemExit(1) if *path* is not a valid zip archive.
+
+    Logs the first 200 bytes of the file when validation fails so the operator
+    can diagnose whether an HTML error page was returned instead of the zip.
+
+    Args:
+        path: Local file path to validate.
+        logger: stdlib logger for error messages.
+
+    Raises:
+        SystemExit(1): If the file is not a valid zip archive.
+    """
+    if not zipfile.is_zipfile(path):
+        try:
+            with open(path, "rb") as fh:
+                preview = fh.read(200)
+            logger.error("Downloaded file is not a valid zip. Preview: %r", preview)
+        except OSError:
+            logger.error("Downloaded file is not a valid zip and cannot be read.")
+        raise SystemExit(1)
+
+
+def _find_csv_member(zf, logger):
+    """Return the name of the first CSV member in *zf*.
+
+    Matching is case-insensitive so both 'data.csv' and 'V_CHARACTERISTICS.CSV'
+    are found correctly.
+
+    Args:
+        zf: An open zipfile.ZipFile instance.
+        logger: stdlib logger for error and warning messages.
+
+    Returns:
+        The member name string (e.g. 'V_CHARACTERISTICS.CSV').
+
+    Raises:
+        SystemExit(1): If no CSV member is found in the zip.
+    """
+    csv_members = [n for n in zf.namelist() if n.upper().endswith(".CSV")]
+    if not csv_members:
+        logger.error("No CSV file found inside zip. Contents: %s", zf.namelist())
+        raise SystemExit(1)
+    if len(csv_members) > 1:
+        logger.warning("Multiple CSV files in zip; using first: %s", csv_members)
+    return csv_members[0]
+
+
+def extract_data(url, work_dir, logger=None):
+    """Download characteristics.zip, validate, extract CSV, return absolute path.
+
+    Orchestrates the full extract pipeline:
+      1. Create work_dir if it does not exist.
+      2. Download the zip from *url* with a browser User-Agent (DL-01).
+      3. Validate the downloaded file is a real zip, not an HTML error page (DL-02).
+      4. Extract the CSV member from the zip (DL-03).
+      5. Return the absolute path to the extracted CSV.
+
+    Args:
+        url: Direct download URL for characteristics.zip.
+        work_dir: Directory to write the zip and extracted CSV into.
+        logger: Optional stdlib logger.  Falls back to module logger if None.
+
+    Returns:
+        Absolute path (str) to the extracted CSV file.
+
+    Raises:
+        SystemExit(1): On HTTP error, invalid zip, or missing CSV inside zip.
+    """
+    log = logger or _log
+    os.makedirs(work_dir, exist_ok=True)
+
+    zip_path = os.path.join(work_dir, "characteristics.zip")
+    log.info("Downloading %s -> %s", url, zip_path)
+    _download_file(url, zip_path, log)
+
+    log.info("Validating zip: %s", zip_path)
+    _validate_zip(zip_path, log)
+
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        member = _find_csv_member(zf, log)
+        zf.extract(member, work_dir)
+
+    csv_path = os.path.abspath(os.path.join(work_dir, member))
+    log.info("Extracted CSV: %s", csv_path)
+    return csv_path
