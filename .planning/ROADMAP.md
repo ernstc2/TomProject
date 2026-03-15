@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Foundation and Load** - Project scaffold, config/logging infrastructure, and verified upsert against the testing table (completed 2026-03-15)
 - [x] **Phase 2: Transform** - Comma-delimited CSV parsing, quote stripping, and schema validation producing a clean DataFrame (completed 2026-03-15)
 - [x] **Phase 3: Extract** - HTTPS download from DLA with User-Agent header, zip validation, and CSV extraction (completed 2026-03-15)
-- [ ] **Phase 4: Integration and Scheduler** - Wire all stages through main(), create run.bat wrapper, configure and verify Task Scheduler
+- [x] **Phase 4: Integration and Scheduler** - Wire all stages through main(), create run.bat wrapper, configure and verify Task Scheduler (completed 2026-03-15)
 
 ## Phase Details
 
@@ -71,7 +71,7 @@ Plans:
   2. The Task Scheduler job completes with Last Run Result 0x0 and the log file shows the run completed after the scheduled trigger fired
   3. Running the pipeline a second time against the same DLA data produces zero inserts and zero updates (end-to-end idempotency confirmed)
   4. A deliberate failure (bad credentials) causes Task Scheduler to record a non-zero exit code and the log file contains the error
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 
 Plans:
 - [ ] 04-01-PLAN.md — Wire extract_data into main(), create run.bat, add pipeline and idempotency tests (OP-04)
@@ -86,4 +86,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 | 1. Foundation and Load | 2/2 | Complete   | 2026-03-15 |
 | 2. Transform | 2/2 | Complete   | 2026-03-15 |
 | 3. Extract | 1/1 | Complete   | 2026-03-15 |
-| 4. Integration and Scheduler | 0/1 | Not started | - |
+| 4. Integration and Scheduler | 1/1 | Complete   | 2026-03-15 |

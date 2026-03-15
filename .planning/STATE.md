@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: planning
-stopped_at: Completed 03-extract 03-01-PLAN.md
-last_updated: "2026-03-15T22:31:15.296Z"
+stopped_at: Completed 04-integration-and-scheduler 04-01-PLAN.md
+last_updated: "2026-03-15T22:54:20.315Z"
 last_activity: 2026-03-13 — Roadmap created
 progress:
   total_phases: 4
-  completed_phases: 3
-  total_plans: 5
-  completed_plans: 5
+  completed_phases: 4
+  total_plans: 6
+  completed_plans: 6
   percent: 0
 ---
 
@@ -56,6 +56,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 02-transform P01 | 201 | 2 tasks | 2 files |
 | Phase 02-transform P02 | 8 | 2 tasks | 4 files |
 | Phase 03-extract P01 | 2 | 2 tasks | 3 files |
+| Phase 04-integration-and-scheduler P01 | 2 | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -82,6 +83,8 @@ Recent decisions affecting current work:
 - [Phase 03-extract]: Browser User-Agent header stored as HEADERS constant -- DLA CDN returns 403 to default Python User-Agent
 - [Phase 03-extract]: download_url in config.ini [paths] -- not hardcoded so Tom can update URL without code changes
 - [Phase 03-extract]: zipfile.is_zipfile() as DL-02 guard -- magic number is authoritative vs content-type header
+- [Phase 04-integration-and-scheduler]: extract_data return value flows into load_csv — cfg[paths][csv_path] removed from main() call path
+- [Phase 04-integration-and-scheduler]: run.bat uses C:\Python313\python.exe; Tom must update path via 'where python' before deployment
 
 ### Pending Todos
 
@@ -96,6 +99,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-15T22:31:15.294Z
-Stopped at: Completed 03-extract 03-01-PLAN.md
+Last session: 2026-03-15T22:54:20.312Z
+Stopped at: Completed 04-integration-and-scheduler 04-01-PLAN.md
 Resume file: None

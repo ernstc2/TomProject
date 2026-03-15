@@ -9,9 +9,9 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Download
 
-- [ ] **DL-01**: Script downloads characteristics.zip from DLA FLIS site with browser User-Agent header
-- [ ] **DL-02**: Script validates downloaded file is a valid zip before extraction
-- [ ] **DL-03**: Script extracts the characteristics CSV from the zip to a working directory
+- [x] **DL-01**: Script downloads characteristics.zip from DLA FLIS site with browser User-Agent header
+- [x] **DL-02**: Script validates downloaded file is a valid zip before extraction
+- [x] **DL-03**: Script extracts the characteristics CSV from the zip to a working directory
 
 ### Transform
 
@@ -32,7 +32,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **OP-01**: Script logs all actions to a rotating log file
 - [x] **OP-02**: Script exits with code 0 on success, 1 on failure for Task Scheduler
 - [x] **OP-03**: Script reads SQL connection details from a config file (not hardcoded)
-- [ ] **OP-04**: A `.bat` wrapper with absolute paths runs the script via Task Scheduler
+- [x] **OP-04**: A `.bat` wrapper with absolute paths runs the script via Task Scheduler
 - [x] **OP-05**: Script uses a testing table (V_CHARACTERISTICS_TESTING) during development
 
 ## v2 Requirements
@@ -70,9 +70,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DL-01 | Phase 3 | Pending |
-| DL-02 | Phase 3 | Pending |
-| DL-03 | Phase 3 | Pending |
+| DL-01 | Phase 3 | Complete |
+| DL-02 | Phase 3 | Complete |
+| DL-03 | Phase 3 | Complete |
 | TF-01 | Phase 2 | Complete |
 | TF-02 | Phase 2 | Complete |
 | TF-03 | Phase 2 | Complete |
@@ -84,7 +84,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | OP-01 | Phase 1 | Complete |
 | OP-02 | Phase 1 | Complete |
 | OP-03 | Phase 1 | Complete |
-| OP-04 | Phase 4 | Pending |
+| OP-04 | Phase 4 | Complete |
 | OP-05 | Phase 1 | Complete |
 
 **Coverage:**
