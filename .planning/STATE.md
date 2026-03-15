@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: planning
-stopped_at: Completed 01-foundation-and-load 01-02-PLAN.md
-last_updated: "2026-03-15T17:02:22.148Z"
+stopped_at: Completed 02-transform 02-01-PLAN.md
+last_updated: "2026-03-15T22:05:55.039Z"
 last_activity: 2026-03-13 — Roadmap created
 progress:
   total_phases: 4
   completed_phases: 1
-  total_plans: 2
-  completed_plans: 2
+  total_plans: 4
+  completed_plans: 3
   percent: 0
 ---
 
@@ -53,6 +53,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01-foundation-and-load P01 | 7 | 2 tasks | 10 files |
 | Phase 01-foundation-and-load P02 | 3 | 2 tasks | 6 files |
 | Phase 01-foundation-and-load P02 | 60 | 3 tasks | 6 files |
+| Phase 02-transform P01 | 201 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -71,6 +72,9 @@ Recent decisions affecting current work:
 - [Phase 01-foundation-and-load]: No PRIMARY KEY on V_CHARACTERISTICS_TESTING — MRC is varchar(max), row matching done by WHERE NIIN=? AND MRC=?
 - [Phase 01-foundation-and-load]: UPDATE+INSERT with UPDLOCK+SERIALIZABLE hints — prevents phantom rows, never uses MERGE (LD-02)
 - [Phase 01-foundation-and-load]: ODBC driver auto-detected via pyodbc.drivers() — prefer Driver 18, then 17, then generic SQL Server — no hardcoding
+- [Phase 02-transform]: dtype=str on pd.read_csv — never allow pandas to infer numeric type for NIIN column
+- [Phase 02-transform]: csv.Sniffer with explicit delimiters candidates — avoids sep=None parser ambiguity
+- [Phase 02-transform]: keep_default_na=False — prevents empty cells converting to NaN in upsert string comparisons
 
 ### Pending Todos
 
@@ -85,6 +89,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-15T16:57:31.128Z
-Stopped at: Completed 01-foundation-and-load 01-02-PLAN.md
+Last session: 2026-03-15T22:05:55.037Z
+Stopped at: Completed 02-transform 02-01-PLAN.md
 Resume file: None

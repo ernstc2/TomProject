@@ -15,10 +15,10 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Transform
 
-- [ ] **TF-01**: Script removes quotes from all CSV fields
+- [x] **TF-01**: Script removes quotes from all CSV fields
 - [ ] **TF-02**: Script converts 2-digit year dates (dd-MMM-yy) to proper SQL date format with correct century pivot
-- [ ] **TF-03**: Script detects and validates the CSV delimiter (pipe vs comma)
-- [ ] **TF-04**: Script validates expected columns (NIIN, REQUIREMENTS_STATEMENT, MRC, CLEAR_TEXT_REPLY) exist before proceeding
+- [x] **TF-03**: Script detects and validates the CSV delimiter (pipe vs comma)
+- [x] **TF-04**: Script validates expected columns (NIIN, REQUIREMENTS_STATEMENT, MRC, CLEAR_TEXT_REPLY) exist before proceeding
 
 ### Load
 
@@ -73,10 +73,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DL-01 | Phase 3 | Pending |
 | DL-02 | Phase 3 | Pending |
 | DL-03 | Phase 3 | Pending |
-| TF-01 | Phase 2 | Pending |
+| TF-01 | Phase 2 | Complete |
 | TF-02 | Phase 2 | Pending |
-| TF-03 | Phase 2 | Pending |
-| TF-04 | Phase 2 | Pending |
+| TF-03 | Phase 2 | Complete |
+| TF-04 | Phase 2 | Complete |
 | LD-01 | Phase 1 | Complete |
 | LD-02 | Phase 1 | Complete |
 | LD-03 | Phase 1 | Complete |
