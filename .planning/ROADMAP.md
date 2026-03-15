@@ -63,24 +63,27 @@ Plans:
 - [ ] 03-01-PLAN.md — TDD: extract.py with download, zip validation, CSV extraction (DL-01, DL-02, DL-03)
 
 ### Phase 4: Integration and Scheduler
-**Goal**: All three stages run end-to-end from a single entry point, the run.bat wrapper launches the correct Python executable, and Windows Task Scheduler completes the job unattended with a non-empty log file and correct exit code
+**Goal**: All three stages run end-to-end from a single entry point, the run.bat wrapper launches the correct Python executable, and Windows Task Scheduler completes the job unattended with a non-zero log file and correct exit code
 **Depends on**: Phase 3
 **Requirements**: OP-04
 **Success Criteria** (what must be TRUE):
-  1. Running run.bat from a terminal executes the full pipeline (download → transform → upsert) and the log file contains a run-summary line with row counts
+  1. Running run.bat from a terminal executes the full pipeline (download -> transform -> upsert) and the log file contains a run-summary line with row counts
   2. The Task Scheduler job completes with Last Run Result 0x0 and the log file shows the run completed after the scheduled trigger fired
   3. Running the pipeline a second time against the same DLA data produces zero inserts and zero updates (end-to-end idempotency confirmed)
   4. A deliberate failure (bad credentials) causes Task Scheduler to record a non-zero exit code and the log file contains the error
-**Plans**: TBD
+**Plans:** 1 plan
+
+Plans:
+- [ ] 04-01-PLAN.md — Wire extract_data into main(), create run.bat, add pipeline and idempotency tests (OP-04)
 
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4
+Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation and Load | 2/2 | Complete   | 2026-03-15 |
 | 2. Transform | 2/2 | Complete   | 2026-03-15 |
 | 3. Extract | 1/1 | Complete   | 2026-03-15 |
-| 4. Integration and Scheduler | 0/TBD | Not started | - |
+| 4. Integration and Scheduler | 0/1 | Not started | - |
