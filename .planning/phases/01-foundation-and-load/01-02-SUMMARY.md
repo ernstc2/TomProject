@@ -18,10 +18,10 @@ affects: [01-03, all-subsequent-plans]
 
 # Tech tracking
 tech-stack:
-  added: [mssql-python (primary DB driver), pyodbc (fallback DB driver)]
+  added: [mssql-python (primary DB driver), pyodbc (fallback DB driver with runtime driver detection)]
   patterns:
     - "UPDATE+INSERT upsert — UPDLOCK/SERIALIZABLE hints prevent phantom inserts under concurrency"
-    - "Driver fallback — mssql-python primary, pyodbc if ImportError"
+    - "Driver fallback — mssql-python primary, pyodbc if ImportError; driver auto-detected via pyodbc.drivers()"
     - "Session-scoped db_config fixture skips all integration tests when config.ini absent"
     - "clean_table fixture deletes all rows before and after each integration test for isolation"
     - "pytest integration mark registered in pytest.ini for selective test runs"
@@ -42,6 +42,7 @@ key-decisions:
   - "UPDATE+INSERT with UPDLOCK+SERIALIZABLE hints — prevents phantom rows under concurrent load"
   - "test_no_merge_statement is a static analysis test — does not require DB connection, always runs"
   - "Integration tests skip automatically when config.ini missing (session-scoped db_config fixture)"
+  - "ODBC driver auto-detected at runtime via pyodbc.drivers() — prefer Driver 18, then 17, then generic SQL Server"
 
 patterns-established:
   - "Upsert pattern: cursor.execute(UPDATE WITH UPDLOCK); if rowcount==0: cursor.execute(INSERT)"
@@ -51,29 +52,30 @@ patterns-established:
 requirements-completed: [LD-01, LD-02, LD-03, LD-04]
 
 # Metrics
-duration: 3min
+duration: ~60min
 completed: 2026-03-15
 ---
 
 # Phase 01 Plan 02: Database Module and Upsert Summary
 
-**UPDATE+INSERT upsert for SQL Server via mssql-python/pyodbc, with UPDLOCK/SERIALIZABLE hints, full transaction rollback, and 6 integration tests against V_CHARACTERISTICS_TESTING.**
+**UPDATE+INSERT upsert for SQL Server via pyodbc with auto-detected ODBC driver (18/17/generic), UPDLOCK/SERIALIZABLE hints, full transaction rollback, and 16 passing tests (6 integration against real SQL Server).**
 
 ## Performance
 
-- **Duration:** ~3 min
+- **Duration:** ~60 min
 - **Started:** 2026-03-15T16:37:01Z
-- **Completed:** 2026-03-15T16:39:48Z
-- **Tasks:** 2 of 3 (Task 3 is a human-verify checkpoint — pending user verification)
+- **Completed:** 2026-03-15
+- **Tasks:** 3 of 3 (including human-verify: all 5 verification steps passed)
 - **Files modified:** 6
 
 ## Accomplishments
 
-- `get_connection()` opens a SQL Server connection from ConfigParser, using mssql-python with an automatic pyodbc fallback, and sets `autocommit=False` for explicit transaction control
+- `get_connection()` opens a SQL Server connection from ConfigParser, using mssql-python primary with automatic pyodbc fallback; pyodbc probes installed ODBC drivers at runtime (Driver 18 -> 17 -> generic), so no hardcoded driver name
 - `ensure_table()` creates V_CHARACTERISTICS_TESTING on first run (no PK — MRC is varchar(max)), skips if already exists, commits the DDL immediately
 - `upsert_batch()` uses UPDATE+INSERT with UPDLOCK/SERIALIZABLE hints per row: zero MERGE statements; commits full batch on success, rolls back entirely on any error
-- `importer.py` main() now runs the complete pipeline end-to-end: load config, setup logger, connect, ensure table, upsert 3 test rows, log inserted/updated counts, exit 0
-- 6 integration tests written (1 passes without DB — static MERGE check; 5 skip cleanly until config.ini is populated)
+- `importer.py` main() runs the complete pipeline end-to-end: load config, setup logger, connect, ensure table, upsert 3 test rows, log inserted/updated counts, exit 0
+- 16 tests passing: 6 integration tests confirmed against real SQL Server (insert, idempotent, update, no-MERGE, 5000-char varchar(max), batch rollback) + 10 unit tests
+- End-to-end verified by user: first run inserted=3 updated=0; second run inserted=0 updated=3; 3 rows visible in SSMS
 
 ## Task Commits
 
@@ -82,6 +84,9 @@ Each task was committed atomically:
 1. **Task 1 RED: Failing integration tests** - `19f8c44` (test)
 2. **Task 1 GREEN: db.py implementation** - `62c642c` (feat)
 3. **Task 2: Wire db.py into importer.py** - `6f4a4d5` (feat)
+4. **Deviation fix: ODBC driver auto-detection** - `6734b91` (fix)
+
+**Plan metadata:** `57eba9b` (docs: complete db module and upsert plan — pre-checkpoint)
 
 _Note: TDD order — tests written first (RED commit), then implementation (GREEN commit)._
 
@@ -123,30 +128,34 @@ _Note: TDD order — tests written first (RED commit), then implementation (GREE
 - **Verification:** Warnings gone, marker resolves correctly with `-m integration` and `-m "not integration"`
 - **Committed in:** `62c642c` (Task 1 GREEN commit)
 
+**3. [Rule 1 - Bug] ODBC driver version hardcoded to Driver 17 — machine had Driver 18 only**
+
+- **Found during:** Task 3 (human-verify — user ran pipeline and got connection failure)
+- **Issue:** `get_connection()` pyodbc fallback path had "ODBC Driver 17 for SQL Server" hardcoded. User's machine has Driver 18 installed, not Driver 17, so the connection string was invalid.
+- **Fix:** Replaced hardcoded string with a runtime probe: `pyodbc.drivers()` scanned for Driver 18 first, then Driver 17, then generic "SQL Server". Raises `RuntimeError` with the full driver list if none found.
+- **Files modified:** `db.py`
+- **Verification:** User ran `python importer.py` after fix — connected successfully, inserted=3 updated=0
+- **Committed in:** `6734b91` (separate fix commit after checkpoint approval)
+
 ---
 
-**Total deviations:** 2 auto-fixed (1 Rule 1 bug, 1 Rule 2 missing critical)
-**Impact on plan:** Both fixes required for correctness. No scope creep.
+**Total deviations:** 3 auto-fixed (2 Rule 1 bugs, 1 Rule 2 missing critical)
+**Impact on plan:** All fixes required for correctness. No scope creep.
 
 ## Issues Encountered
 
-- mssql-python is the primary driver per LD decision; pyodbc fallback is implemented but both will be validated at the Task 3 checkpoint when Tom runs the pipeline against his actual SQL Server instance.
+None beyond the ODBC driver deviation documented above. mssql-python import failed on user's machine (ImportError), confirming the pyodbc fallback path is the active path in this environment.
 
 ## User Setup Required
 
-Tom must complete these steps before running Task 3 verification:
-
-1. Copy `config.ini.example` to `config.ini` in the project root
-2. Fill in real SQL Server credentials: `server`, `database`, `username`, `password`
-3. Confirm `table = V_CHARACTERISTICS_TESTING` is correct
-4. Ensure SQL Server is accessible from the machine running the script
+config.ini must exist with real SQL Server credentials (copy from config.ini.example, fill in server/database/username/password). config.ini is gitignored — credentials are never committed.
 
 ## Next Phase Readiness
 
-- Task 3 (human-verify checkpoint) is pending — Tom needs to run `python importer.py` twice and `pytest tests/ -v` against his real SQL Server instance to confirm end-to-end correctness
-- Once Task 3 is approved, Phase 1 is complete and Phase 2 (CSV transform) can begin
-- The upsert foundation is solid: all 5 DB-dependent tests will run as true integration tests once `config.ini` is populated
+- End-to-end pipeline is verified on a real SQL Server instance with real credentials
+- `upsert_batch(conn, table, rows, logger)` is ready to receive rows from Phase 2's CSV parser
+- Phase 2 can focus entirely on CSV parsing and transformation — the load layer is stable and proven
 
 ---
 *Phase: 01-foundation-and-load*
-*Completed: 2026-03-15 (Task 3 checkpoint pending human verification)*
+*Completed: 2026-03-15*

@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: planning
-stopped_at: "Checkpoint: Task 3 human-verify for 01-02 (awaiting user verification of end-to-end pipeline)"
-last_updated: "2026-03-15T16:41:06.777Z"
+stopped_at: Completed 01-foundation-and-load 01-02-PLAN.md
+last_updated: "2026-03-15T16:57:31.131Z"
 last_activity: 2026-03-13 — Roadmap created
 progress:
   total_phases: 4
@@ -52,6 +52,7 @@ Progress: [░░░░░░░░░░] 0%
 *Updated after each plan completion*
 | Phase 01-foundation-and-load P01 | 7 | 2 tasks | 10 files |
 | Phase 01-foundation-and-load P02 | 3 | 2 tasks | 6 files |
+| Phase 01-foundation-and-load P02 | 60 | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -69,6 +70,7 @@ Recent decisions affecting current work:
 - [Phase 01-foundation-and-load]: config.ini gitignored; config.ini.example committed — credentials never in version control
 - [Phase 01-foundation-and-load]: No PRIMARY KEY on V_CHARACTERISTICS_TESTING — MRC is varchar(max), row matching done by WHERE NIIN=? AND MRC=?
 - [Phase 01-foundation-and-load]: UPDATE+INSERT with UPDLOCK+SERIALIZABLE hints — prevents phantom rows, never uses MERGE (LD-02)
+- [Phase 01-foundation-and-load]: ODBC driver auto-detected via pyodbc.drivers() — prefer Driver 18, then 17, then generic SQL Server — no hardcoding
 
 ### Pending Todos
 
@@ -83,6 +85,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-15T16:41:06.775Z
-Stopped at: Checkpoint: Task 3 human-verify for 01-02 (awaiting user verification of end-to-end pipeline)
+Last session: 2026-03-15T16:57:31.128Z
+Stopped at: Completed 01-foundation-and-load 01-02-PLAN.md
 Resume file: None
