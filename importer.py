@@ -10,6 +10,8 @@ import os
 import sys
 from logging.handlers import RotatingFileHandler
 
+from db import get_connection, ensure_table, upsert_batch
+
 
 def load_config(path="config.ini"):
     """Read an INI configuration file and return a ConfigParser object.
@@ -74,9 +76,11 @@ def setup_logger(log_dir, max_bytes=10_485_760, backup_count=5, logger_name="pub
 def main():
     """Top-level orchestrator.
 
-    Loads config, sets up logging, and runs the import pipeline.
+    Loads config, sets up logging, connects to SQL Server, ensures the target
+    table exists, upserts 3 test rows, and logs results.
     Exits with code 0 on success, code 1 on any error.
     """
+    conn = None
     try:
         cfg = load_config()
         log_dir = cfg["logging"]["log_dir"]
@@ -86,8 +90,45 @@ def main():
         logger = setup_logger(log_dir, max_bytes=max_bytes, backup_count=backup_count)
         logger.info("PubLog Importer started")
 
-        # Phase 1 placeholder: DB connection and upsert not yet configured
-        logger.info("No data source configured yet")
+        # Connect to SQL Server
+        conn = get_connection(cfg)
+        server = cfg["database"]["server"]
+        database = cfg["database"]["database"]
+        logger.info("Connected to %s/%s", server, database)
+
+        # Ensure the target table exists
+        table = cfg["database"]["table"]
+        ensure_table(conn, table)
+        logger.info("Table %s ensured", table)
+
+        # Upsert 3 test rows
+        test_rows = [
+            {
+                "NIIN": "TEST000001",
+                "MRC": "A",
+                "REQUIREMENTS_STATEMENT": "Test requirement 1",
+                "CLEAR_TEXT_REPLY": "Test reply 1",
+            },
+            {
+                "NIIN": "TEST000001",
+                "MRC": "B",
+                "REQUIREMENTS_STATEMENT": "Test requirement 2",
+                "CLEAR_TEXT_REPLY": "Test reply 2",
+            },
+            {
+                "NIIN": "TEST000002",
+                "MRC": "A",
+                "REQUIREMENTS_STATEMENT": "Test requirement 3",
+                "CLEAR_TEXT_REPLY": "Test reply 3",
+            },
+        ]
+
+        result = upsert_batch(conn, table, test_rows, logger)
+        logger.info(
+            "Upsert complete: inserted=%d updated=%d",
+            result["inserted"],
+            result["updated"],
+        )
 
         logger.info("Run complete.")
         sys.exit(0)
@@ -95,6 +136,13 @@ def main():
     except Exception as exc:  # noqa: BLE001
         print(f"ERROR: {exc}", file=sys.stderr)
         sys.exit(1)
+
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":
