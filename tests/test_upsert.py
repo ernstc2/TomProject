@@ -110,19 +110,30 @@ def test_update_changed_row(db_conn, clean_table, db_config):
     assert row[1] == "new reply"
 
 
-@pytest.mark.integration
 def test_no_merge_statement():
-    """db.py must not contain a MERGE SQL statement."""
+    """db.py must not contain a SQL MERGE statement (outside comments/strings)."""
     db_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "db.py")
     with open(db_path, "r", encoding="utf-8") as f:
-        source = f.read()
+        lines = f.readlines()
 
-    # Check for MERGE in SQL context (case-insensitive)
     import re
-    # Match "MERGE INTO" or "MERGE " followed by a table-like reference
-    merge_pattern = re.compile(r"\bMERGE\s+(INTO\s+)?\w", re.IGNORECASE)
-    assert not merge_pattern.search(source), (
-        "db.py contains a MERGE statement — use UPDATE+INSERT pattern instead (LD-02)"
+    # Pattern: MERGE followed by a table reference — i.e. MERGE INTO <word> or MERGE <word>
+    # This is the SQL statement form. We skip lines that are pure comments (# ...) or
+    # lines where MERGE only appears inside a string fragment like "never MERGE" or "not MERGE".
+    # We look specifically for the SQL DML pattern: MERGE [INTO] <identifier>
+    sql_merge_pattern = re.compile(r"\bMERGE\s+(?:INTO\s+)\w+|\bMERGE\s+\w+\s+USING\b", re.IGNORECASE)
+    violations = []
+    for lineno, line in enumerate(lines, start=1):
+        stripped = line.strip()
+        # Skip pure comment lines
+        if stripped.startswith("#"):
+            continue
+        if sql_merge_pattern.search(line):
+            violations.append(f"  Line {lineno}: {line.rstrip()}")
+
+    assert not violations, (
+        "db.py contains a SQL MERGE statement — use UPDATE+INSERT pattern instead (LD-02):\n"
+        + "\n".join(violations)
     )
 
 
