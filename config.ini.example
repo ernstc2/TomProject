@@ -1,0 +1,13 @@
+[database]
+server = YOUR_SERVER_NAME
+database = DN_Live
+username = your_sql_login
+password = your_password
+table = V_CHARACTERISTICS_TESTING
+encrypt = yes
+trust_server_certificate = yes
+
+[logging]
+log_dir = logs
+max_bytes = 10485760
+backup_count = 5

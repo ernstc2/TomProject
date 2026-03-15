@@ -1,1 +1,25 @@
 .planning/
+
+# Runtime-generated files
+config.ini
+logs/
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+
+# Test cache
+.pytest_cache/
+
+# Distribution / packaging
+*.egg-info/
+dist/
+build/
+
+# CSV data files (large, not tracked)
+*.CSV
+*.csv
+
+# Environment files
+.env
