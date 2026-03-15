@@ -21,6 +21,11 @@ def tmp_config(tmp_path):
         "max_bytes": "10485760",
         "backup_count": "5",
     }
+    config["paths"] = {
+        "download_url": "https://test.example.com/characteristics.zip",
+        "work_dir": str(tmp_path / "work"),
+        "csv_path": str(tmp_path / "work" / "V_CHARACTERISTICS.CSV"),
+    }
     config_path = tmp_path / "config.ini"
     with open(config_path, "w") as f:
         config.write(f)
