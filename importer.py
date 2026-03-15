@@ -11,6 +11,7 @@ import sys
 from logging.handlers import RotatingFileHandler
 
 from db import get_connection, ensure_table, upsert_batch
+from extract import extract_data
 from transform import load_csv
 
 
@@ -103,8 +104,14 @@ def main():
         ensure_table(conn, table)
         logger.info("Table %s ensured", table)
 
+        # Download and extract the CSV
+        url = cfg["paths"]["download_url"]
+        work_dir = cfg["paths"]["work_dir"]
+        logger.info("Downloading from %s", url)
+        csv_path = extract_data(url, work_dir, logger)
+        logger.info("CSV ready at %s", csv_path)
+
         # Load the CSV and convert dates
-        csv_path = cfg["paths"]["csv_path"]
         df = load_csv(csv_path, logger)
         logger.info("Loaded %d rows from %s", len(df), csv_path)
 

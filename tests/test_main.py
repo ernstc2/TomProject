@@ -35,6 +35,7 @@ def test_main_exits_0_on_success(tmp_config, tmp_log_dir, monkeypatch):
     mock_conn = _MockConn()
 
     monkeypatch.setattr(importer, "load_config", patched_load_config)
+    monkeypatch.setattr(importer, "extract_data", lambda url, work_dir, logger=None: "dummy.csv")
     monkeypatch.setattr(
         importer,
         "load_csv",
@@ -131,8 +132,7 @@ _SAMPLE_CSV = (
 
 
 def test_main_calls_load_csv(tmp_path, tmp_config, tmp_log_dir, monkeypatch):
-    """main() must call transform.load_csv with the CSV path from config."""
-    csv_path = _make_csv(tmp_path, _SAMPLE_CSV)
+    """main() must call transform.load_csv with the path returned by extract_data."""
     load_csv_calls = []
 
     import pandas as pd
@@ -144,7 +144,15 @@ def test_main_calls_load_csv(tmp_path, tmp_config, tmp_log_dir, monkeypatch):
              "REQUIREMENTS_STATEMENT": "Req one", "CLEAR_TEXT_REPLY": "Reply one"},
         ])
 
-    monkeypatch.setattr(importer, "load_config", _patch_config_with_csv(tmp_config, tmp_log_dir, csv_path))
+    real_load_config = importer.load_config
+
+    def patched_load_config(path="config.ini"):
+        cfg = real_load_config(str(tmp_config))
+        cfg["logging"]["log_dir"] = str(tmp_log_dir)
+        return cfg
+
+    monkeypatch.setattr(importer, "load_config", patched_load_config)
+    monkeypatch.setattr(importer, "extract_data", lambda url, work_dir, logger=None: "/mock/extract.csv")
     monkeypatch.setattr(importer, "load_csv", fake_load_csv)
     monkeypatch.setattr(importer, "get_connection", lambda cfg: _MockConn())
     monkeypatch.setattr(importer, "ensure_table", lambda conn, table: None)
@@ -158,14 +166,13 @@ def test_main_calls_load_csv(tmp_path, tmp_config, tmp_log_dir, monkeypatch):
 
     assert exc_info.value.code == 0
     assert len(load_csv_calls) == 1
-    assert load_csv_calls[0] == csv_path
+    assert load_csv_calls[0] == "/mock/extract.csv"
 
 
 def test_main_passes_df_to_upsert(tmp_path, tmp_config, tmp_log_dir, monkeypatch):
     """main() must convert the DataFrame to rows and pass them to upsert_batch."""
     import pandas as pd
 
-    csv_path = _make_csv(tmp_path, _SAMPLE_CSV)
     expected_rows = [
         {"NIIN": "000000042", "MRC": "A",
          "REQUIREMENTS_STATEMENT": "Req one", "CLEAR_TEXT_REPLY": "Reply one"},
@@ -174,7 +181,15 @@ def test_main_passes_df_to_upsert(tmp_path, tmp_config, tmp_log_dir, monkeypatch
     ]
     captured = {}
 
-    monkeypatch.setattr(importer, "load_config", _patch_config_with_csv(tmp_config, tmp_log_dir, csv_path))
+    real_load_config = importer.load_config
+
+    def patched_load_config(path="config.ini"):
+        cfg = real_load_config(str(tmp_config))
+        cfg["logging"]["log_dir"] = str(tmp_log_dir)
+        return cfg
+
+    monkeypatch.setattr(importer, "load_config", patched_load_config)
+    monkeypatch.setattr(importer, "extract_data", lambda url, work_dir, logger=None: "/mock/extract.csv")
     monkeypatch.setattr(
         importer, "load_csv",
         lambda path, logger=None: pd.DataFrame(expected_rows),
