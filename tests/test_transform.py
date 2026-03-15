@@ -197,3 +197,69 @@ class TestColumnValidation:
         missing_path = tmp_path / "does_not_exist.csv"
         with pytest.raises(FileNotFoundError):
             load_csv(missing_path)
+
+
+# ---------------------------------------------------------------------------
+# TF-02  Date conversion (dd-MMM-yy -> YYYY-MM-DD, century pivot)
+# ---------------------------------------------------------------------------
+
+class TestDateConversion:
+    """load_csv() must convert dd-MMM-yy dates in CLEAR_TEXT_REPLY to YYYY-MM-DD."""
+
+    def _csv(self, reply_value, niin="000000042", mrc="A", req="Requirement"):
+        """Build a single-row CSV string with the given CLEAR_TEXT_REPLY value."""
+        return (
+            "NIIN,MRC,REQUIREMENTS_STATEMENT,CLEAR_TEXT_REPLY\n"
+            f"{niin},{mrc},{req},{reply_value}\n"
+        )
+
+    def test_date_standalone(self, tmp_path):
+        """A standalone dd-MMM-yy date is converted to YYYY-MM-DD."""
+        path = _make_csv(tmp_path, self._csv("18-MAR-52"))
+        df = load_csv(path)
+        assert df.loc[0, "CLEAR_TEXT_REPLY"] == "1952-03-18"
+
+    def test_date_embedded(self, tmp_path):
+        """A date embedded in text is replaced in-place (surrounding text preserved)."""
+        path = _make_csv(tmp_path, self._csv("PC2897 (20-FEB-02)"))
+        df = load_csv(path)
+        assert df.loc[0, "CLEAR_TEXT_REPLY"] == "PC2897 (2002-02-20)"
+
+    def test_century_pivot_old(self, tmp_path):
+        """yy=52 (> current 2-digit year 26) maps to 1952, not 2052."""
+        path = _make_csv(tmp_path, self._csv("18-MAR-52"))
+        df = load_csv(path)
+        assert df.loc[0, "CLEAR_TEXT_REPLY"].startswith("1952-")
+
+    def test_century_pivot_recent(self, tmp_path):
+        """yy=02 (< current 2-digit year 26) maps to 2002."""
+        path = _make_csv(tmp_path, self._csv("20-FEB-02"))
+        df = load_csv(path)
+        assert df.loc[0, "CLEAR_TEXT_REPLY"].startswith("2002-")
+
+    def test_date_unparseable(self, tmp_path):
+        """A date-like pattern with an invalid month abbreviation is left unchanged."""
+        path = _make_csv(tmp_path, self._csv("99-XXX-00"))
+        df = load_csv(path)
+        assert df.loc[0, "CLEAR_TEXT_REPLY"] == "99-XXX-00"
+
+    def test_date_other_columns_untouched(self, tmp_path):
+        """Date patterns in NIIN, MRC, REQUIREMENTS_STATEMENT columns are NOT converted."""
+        content = (
+            "NIIN,MRC,REQUIREMENTS_STATEMENT,CLEAR_TEXT_REPLY\n"
+            "18-MAR-52,18-MAR-52,18-MAR-52,18-MAR-52\n"
+        )
+        path = _make_csv(tmp_path, content)
+        df = load_csv(path)
+        # CLEAR_TEXT_REPLY is converted
+        assert df.loc[0, "CLEAR_TEXT_REPLY"] == "1952-03-18"
+        # Other columns are NOT converted
+        assert df.loc[0, "NIIN"] == "18-MAR-52"
+        assert df.loc[0, "MRC"] == "18-MAR-52"
+        assert df.loc[0, "REQUIREMENTS_STATEMENT"] == "18-MAR-52"
+
+    def test_no_dates_no_crash(self, tmp_path):
+        """CLEAR_TEXT_REPLY with no date patterns is returned unchanged."""
+        path = _make_csv(tmp_path, self._csv("No dates here at all"))
+        df = load_csv(path)
+        assert df.loc[0, "CLEAR_TEXT_REPLY"] == "No dates here at all"
