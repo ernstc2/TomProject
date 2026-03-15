@@ -1,4 +1,5 @@
 .planning/
+.claude/
 
 # Runtime-generated files
 config.ini

@@ -16,4 +16,3 @@ backup_count = 5
 ; Update with actual download link from DLA FLIS Electronic Reading Room
 download_url = https://www.dla.mil/Information-Operations/FLIS-Data-Electronic-Reading-Room/
 work_dir = work
-csv_path = work/V_CHARACTERISTICS.CSV
