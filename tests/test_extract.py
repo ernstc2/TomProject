@@ -13,7 +13,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from extract import _download_file, _find_csv_member, _validate_zip, extract_data
+from extract import (
+    _download_file,
+    _find_csv_member,
+    _resolve_download_url,
+    _validate_zip,
+    extract_data,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -36,6 +42,77 @@ def _create_zip(path, members):
     with zipfile.ZipFile(path, "w") as zf:
         for name, data in members.items():
             zf.writestr(name, data)
+
+
+# ---------------------------------------------------------------------------
+# URL resolution tests (scrape reading room page)
+# ---------------------------------------------------------------------------
+
+READING_ROOM_HTML = """
+<html><body>
+<table>
+<tr><td>CAGE</td><td><a href="/files/CAGE.zip">CAGE.zip</a></td></tr>
+<tr><td>Characteristics</td><td><a href="/files/Characteristics.zip">Characteristics.zip</a></td></tr>
+<tr><td>History</td><td><a href="/files/History.zip">History.zip</a></td></tr>
+</table>
+</body></html>
+"""
+
+
+class TestResolveDownloadUrl:
+    """_resolve_download_url() must scrape the reading room page for the zip link."""
+
+    def test_finds_characteristics_zip_link(self):
+        """Finds the Characteristics.zip link and returns an absolute URL."""
+        mock_resp = MagicMock()
+        mock_resp.text = READING_ROOM_HTML
+        mock_resp.raise_for_status.return_value = None
+
+        with patch("requests.get", return_value=mock_resp):
+            result = _resolve_download_url(
+                "https://www.dla.mil/reading-room/", logging.getLogger("test")
+            )
+
+        assert result.endswith("/files/Characteristics.zip")
+
+    def test_case_insensitive_match(self):
+        """Matches 'characteristics' regardless of case in text or href."""
+        html = '<html><body><a href="/dl/CHARACTERISTICS.ZIP">Download</a></body></html>'
+        mock_resp = MagicMock()
+        mock_resp.text = html
+        mock_resp.raise_for_status.return_value = None
+
+        with patch("requests.get", return_value=mock_resp):
+            result = _resolve_download_url(
+                "https://www.dla.mil/page/", logging.getLogger("test")
+            )
+
+        assert result.endswith("/dl/CHARACTERISTICS.ZIP")
+
+    def test_no_matching_link_exits_1(self):
+        """Exits with code 1 when no Characteristics.zip link is found."""
+        html = "<html><body><a href='/other.zip'>Other.zip</a></body></html>"
+        mock_resp = MagicMock()
+        mock_resp.text = html
+        mock_resp.raise_for_status.return_value = None
+
+        with patch("requests.get", return_value=mock_resp):
+            with pytest.raises(SystemExit) as exc_info:
+                _resolve_download_url(
+                    "https://www.dla.mil/page/", logging.getLogger("test")
+                )
+        assert exc_info.value.code == 1
+
+    def test_http_error_exits_1(self):
+        """Exits with code 1 on HTTP error fetching the page."""
+        import requests as req_lib
+
+        with patch("requests.get", side_effect=req_lib.HTTPError("500")):
+            with pytest.raises(SystemExit) as exc_info:
+                _resolve_download_url(
+                    "https://www.dla.mil/page/", logging.getLogger("test")
+                )
+        assert exc_info.value.code == 1
 
 
 # ---------------------------------------------------------------------------

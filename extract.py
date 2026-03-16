@@ -3,7 +3,9 @@
 import logging
 import os
 import zipfile
+from urllib.parse import urljoin
 
+import lxml.html
 import requests
 
 HEADERS = {
@@ -15,6 +17,49 @@ HEADERS = {
 }
 
 _log = logging.getLogger(__name__)
+
+
+def _resolve_download_url(page_url, logger, timeout=30):
+    """Scrape the DLA reading room page and return the Characteristics.zip link.
+
+    Fetches *page_url*, parses the HTML, and finds an <a> tag whose text or
+    href contains 'characteristics' and ends with '.zip'.
+
+    Args:
+        page_url: URL of the DLA FLIS Electronic Reading Room page.
+        logger: stdlib logger for error messages.
+        timeout: HTTP request timeout in seconds (default 30).
+
+    Returns:
+        Absolute URL to the Characteristics.zip download.
+
+    Raises:
+        SystemExit(1): On HTTP/network error or if no matching link is found.
+    """
+    try:
+        resp = requests.get(page_url, headers=HEADERS, timeout=timeout)
+        resp.raise_for_status()
+    except requests.HTTPError as exc:
+        logger.error("HTTP error fetching reading room page: %s", exc)
+        raise SystemExit(1) from exc
+    except requests.RequestException as exc:
+        logger.error("Network error fetching reading room page: %s", exc)
+        raise SystemExit(1) from exc
+
+    doc = lxml.html.fromstring(resp.text)
+    for link in doc.iterlinks():
+        element, _attr, href, _pos = link
+        text = (element.text_content() or "").strip().lower()
+        href_lower = href.lower()
+        if "characteristics" in (text + href_lower) and href_lower.endswith(".zip"):
+            download_url = urljoin(page_url, href)
+            logger.info("Resolved download URL: %s", download_url)
+            return download_url
+
+    logger.error(
+        "No Characteristics.zip link found on page: %s", page_url
+    )
+    raise SystemExit(1)
 
 
 def _download_file(url, dest_path, logger, timeout=120):
@@ -118,6 +163,10 @@ def extract_data(url, work_dir, logger=None):
     """
     log = logger or _log
     os.makedirs(work_dir, exist_ok=True)
+
+    if not url.lower().endswith(".zip"):
+        log.info("URL is not a direct zip link, scraping page: %s", url)
+        url = _resolve_download_url(url, log)
 
     zip_path = os.path.join(work_dir, "characteristics.zip")
     log.info("Downloading %s -> %s", url, zip_path)
