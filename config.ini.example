@@ -3,7 +3,7 @@ server = YOUR_SERVER_NAME
 database = DN_Live
 username = your_sql_login
 password = your_password
-table = V_CHARACTERISTICS_TESTING
+table = V_CHARACTERISTICS
 encrypt = yes
 trust_server_certificate = yes
 
