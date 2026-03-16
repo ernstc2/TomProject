@@ -4,6 +4,7 @@ Provides:
     get_connection(cfg)        -- Open a SQL Server connection via mssql-python (pyodbc fallback)
     ensure_table(conn, table)  -- Create V_CHARACTERISTICS_TESTING if it doesn't exist
     upsert_batch(conn, table, rows, logger) -- UPDATE+INSERT each row; never MERGE
+    upsert_bulk(conn, table, rows, logger)  -- Staging table bulk upsert for large datasets
 """
 
 import logging
@@ -208,4 +209,156 @@ def upsert_batch(conn, table, rows, logger=None):
     except Exception as exc:
         conn.rollback()
         log.error("Upsert failed, transaction rolled back: %s", exc)
+        raise
+
+
+_BULK_CHUNK = 10_000
+
+
+def upsert_bulk(conn, table, rows, logger=None):
+    """Bulk upsert via staging table — designed for millions of rows.
+
+    Strategy:
+      1. Create a staging table with the same schema + index on NIIN.
+      2. Bulk-load all rows into staging using fast_executemany in chunks.
+      3. UPDATE target rows that exist but have changed data.
+      4. INSERT rows that exist in staging but not in target.
+      5. Drop the staging table.
+
+    Never uses SQL MERGE (locked decision LD-02).
+    Uses fast_executemany with explicit setinputsizes to avoid varchar(max) truncation.
+
+    Args:
+        conn:   An open database connection with autocommit=False.
+        table:  Target table name (e.g. "V_CHARACTERISTICS_TESTING").
+        rows:   List of dicts with keys NIIN, MRC, REQUIREMENTS_STATEMENT, CLEAR_TEXT_REPLY.
+        logger: Optional logger; falls back to module-level logger if None.
+
+    Returns:
+        dict: {"inserted": N, "updated": N}
+
+    Raises:
+        Exception: Any database error, after rolling back and cleaning up staging.
+    """
+    log = logger if logger is not None else _logger
+    staging = f"{table}_STAGING"
+    cursor = conn.cursor()
+
+    try:
+        # 1. Create staging table
+        cursor.execute(f"DROP TABLE IF EXISTS {staging}")
+        cursor.execute(
+            f"""
+            CREATE TABLE {staging} (
+                NIIN                    varchar(50)   NOT NULL,
+                MRC                     varchar(max)  NOT NULL,
+                REQUIREMENTS_STATEMENT  varchar(max)  NULL,
+                CLEAR_TEXT_REPLY        varchar(max)  NULL
+            )
+            """
+        )
+        cursor.execute(f"CREATE INDEX IX_{staging}_NIIN ON {staging} (NIIN)")
+        conn.commit()
+        log.info("Staging table %s created", staging)
+
+        # 2. Bulk-load into staging using fast_executemany
+        cursor.fast_executemany = True
+        # Explicit column sizes prevent varchar(max) truncation bug in pyodbc.
+        # (sql_type, size, precision) — size=0 means max/unlimited.
+        import pyodbc as _pyodbc
+        cursor.setinputsizes(
+            [(_pyodbc.SQL_VARCHAR, 50, 0),   # NIIN: varchar(50)
+             (_pyodbc.SQL_VARCHAR, 0, 0),    # MRC: varchar(max)
+             (_pyodbc.SQL_VARCHAR, 0, 0),    # REQUIREMENTS_STATEMENT
+             (_pyodbc.SQL_VARCHAR, 0, 0)]    # CLEAR_TEXT_REPLY
+        )
+
+        insert_sql = (
+            f"INSERT INTO {staging} "
+            f"(NIIN, MRC, REQUIREMENTS_STATEMENT, CLEAR_TEXT_REPLY) "
+            f"VALUES (?, ?, ?, ?)"
+        )
+
+        total = len(rows)
+        for i in range(0, total, _BULK_CHUNK):
+            chunk = rows[i : i + _BULK_CHUNK]
+            params = [
+                (r["NIIN"], r["MRC"], r["REQUIREMENTS_STATEMENT"], r["CLEAR_TEXT_REPLY"])
+                for r in chunk
+            ]
+            cursor.executemany(insert_sql, params)
+            if (i // _BULK_CHUNK) % 100 == 0:
+                log.info("Bulk load progress: %d / %d rows", min(i + _BULK_CHUNK, total), total)
+
+        conn.commit()
+        log.info("Bulk load complete: %d rows in staging", total)
+
+        # Create index on target NIIN if not exists (speeds up the JOIN)
+        cursor.execute(
+            f"""
+            IF NOT EXISTS (
+                SELECT 1 FROM sys.indexes
+                WHERE object_id = OBJECT_ID('{table}')
+                  AND name = 'IX_{table}_NIIN'
+            )
+            CREATE INDEX IX_{table}_NIIN ON {table} (NIIN)
+            """
+        )
+        conn.commit()
+
+        # 3. UPDATE existing rows where data has changed
+        cursor.execute(
+            f"""
+            UPDATE t
+            SET t.REQUIREMENTS_STATEMENT = s.REQUIREMENTS_STATEMENT,
+                t.CLEAR_TEXT_REPLY       = s.CLEAR_TEXT_REPLY
+            FROM {table} t
+            INNER JOIN {staging} s
+                ON t.NIIN = s.NIIN
+               AND t.MRC  = s.MRC
+            WHERE ISNULL(t.REQUIREMENTS_STATEMENT, '') != ISNULL(s.REQUIREMENTS_STATEMENT, '')
+               OR ISNULL(t.CLEAR_TEXT_REPLY, '')       != ISNULL(s.CLEAR_TEXT_REPLY, '')
+            """
+        )
+        updated = cursor.rowcount
+        conn.commit()
+        log.info("Updated %d changed rows", updated)
+
+        # 4. INSERT rows not already in target
+        cursor.execute(
+            f"""
+            INSERT INTO {table}
+                (NIIN, MRC, REQUIREMENTS_STATEMENT, CLEAR_TEXT_REPLY)
+            SELECT s.NIIN, s.MRC, s.REQUIREMENTS_STATEMENT, s.CLEAR_TEXT_REPLY
+            FROM {staging} s
+            WHERE NOT EXISTS (
+                SELECT 1 FROM {table} t
+                WHERE t.NIIN = s.NIIN
+                  AND t.MRC  = s.MRC
+            )
+            """
+        )
+        inserted = cursor.rowcount
+        conn.commit()
+        log.info("Inserted %d new rows", inserted)
+
+        # 5. Drop staging table
+        cursor.execute(f"DROP TABLE {staging}")
+        conn.commit()
+
+        log.info(
+            "Bulk upsert complete: inserted=%d updated=%d table=%s",
+            inserted, updated, table,
+        )
+        return {"inserted": inserted, "updated": updated}
+
+    except Exception as exc:
+        conn.rollback()
+        # Clean up staging table on failure
+        try:
+            cursor.execute(f"DROP TABLE IF EXISTS {staging}")
+            conn.commit()
+        except Exception:
+            pass
+        log.error("Bulk upsert failed, transaction rolled back: %s", exc)
         raise

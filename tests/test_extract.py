@@ -1,9 +1,7 @@
 """Unit tests for extract.py -- download, validate, and extract characteristics zip.
 
-Covers requirements: DL-01 (browser User-Agent download), DL-02 (zip validation),
+Covers requirements: DL-01 (Chrome TLS download), DL-02 (zip validation),
 DL-03 (CSV extraction with absolute path).
-
-These tests are written FIRST (RED phase) and must fail until extract.py exists.
 """
 import io
 import logging
@@ -27,13 +25,11 @@ from extract import (
 # ---------------------------------------------------------------------------
 
 def _mock_response(content, status_code=200):
-    """Return a MagicMock simulating a requests response with streaming support."""
+    """Return a MagicMock simulating a curl_cffi response with streaming support."""
     resp = MagicMock()
     resp.status_code = status_code
     resp.iter_content.return_value = [content]
     resp.raise_for_status.return_value = None
-    resp.__enter__ = lambda s: s
-    resp.__exit__ = MagicMock(return_value=False)
     return resp
 
 
@@ -42,6 +38,10 @@ def _create_zip(path, members):
     with zipfile.ZipFile(path, "w") as zf:
         for name, data in members.items():
             zf.writestr(name, data)
+
+
+# Mock target: curl_cffi.requests.get as used by extract.py
+_CFFI_GET = "extract.cffi_requests.get"
 
 
 # ---------------------------------------------------------------------------
@@ -68,7 +68,7 @@ class TestResolveDownloadUrl:
         mock_resp.text = READING_ROOM_HTML
         mock_resp.raise_for_status.return_value = None
 
-        with patch("requests.get", return_value=mock_resp):
+        with patch(_CFFI_GET, return_value=mock_resp):
             result = _resolve_download_url(
                 "https://www.dla.mil/reading-room/", logging.getLogger("test")
             )
@@ -82,7 +82,7 @@ class TestResolveDownloadUrl:
         mock_resp.text = html
         mock_resp.raise_for_status.return_value = None
 
-        with patch("requests.get", return_value=mock_resp):
+        with patch(_CFFI_GET, return_value=mock_resp):
             result = _resolve_download_url(
                 "https://www.dla.mil/page/", logging.getLogger("test")
             )
@@ -96,7 +96,7 @@ class TestResolveDownloadUrl:
         mock_resp.text = html
         mock_resp.raise_for_status.return_value = None
 
-        with patch("requests.get", return_value=mock_resp):
+        with patch(_CFFI_GET, return_value=mock_resp):
             with pytest.raises(SystemExit) as exc_info:
                 _resolve_download_url(
                     "https://www.dla.mil/page/", logging.getLogger("test")
@@ -105,9 +105,9 @@ class TestResolveDownloadUrl:
 
     def test_http_error_exits_1(self):
         """Exits with code 1 on HTTP error fetching the page."""
-        import requests as req_lib
+        from curl_cffi.requests.exceptions import RequestException
 
-        with patch("requests.get", side_effect=req_lib.HTTPError("500")):
+        with patch(_CFFI_GET, side_effect=RequestException("500")):
             with pytest.raises(SystemExit) as exc_info:
                 _resolve_download_url(
                     "https://www.dla.mil/page/", logging.getLogger("test")
@@ -120,37 +120,36 @@ class TestResolveDownloadUrl:
 # ---------------------------------------------------------------------------
 
 class TestDownload:
-    """_download_file() must send a browser User-Agent and handle HTTP errors."""
+    """_download_file() must use Chrome TLS impersonation and handle HTTP errors."""
 
-    def test_download_sends_user_agent_header(self, tmp_path):
-        """_download_file() sends a User-Agent header containing 'Mozilla/5.0'."""
+    def test_download_uses_chrome_impersonation(self, tmp_path):
+        """_download_file() passes impersonate='chrome' to curl_cffi."""
         dest = str(tmp_path / "test.zip")
         mock_resp = _mock_response(b"fake zip content")
 
-        with patch("requests.get", return_value=mock_resp) as mock_get:
+        with patch(_CFFI_GET, return_value=mock_resp) as mock_get:
             _download_file("http://example.com/test.zip", dest, logging.getLogger("test"))
 
         call_kwargs = mock_get.call_args
-        headers_sent = call_kwargs[1].get("headers") or call_kwargs[0][1] if len(call_kwargs[0]) > 1 else call_kwargs[1]["headers"]
-        assert "Mozilla/5.0" in headers_sent["User-Agent"]
+        assert call_kwargs[1].get("impersonate") == "chrome"
 
     def test_download_writes_content_to_file(self, tmp_path):
         """_download_file() writes the response body to the destination file."""
         dest = str(tmp_path / "test.zip")
         mock_resp = _mock_response(b"fake zip content")
 
-        with patch("requests.get", return_value=mock_resp):
+        with patch(_CFFI_GET, return_value=mock_resp):
             _download_file("http://example.com/test.zip", dest, logging.getLogger("test"))
 
         with open(dest, "rb") as fh:
             assert fh.read() == b"fake zip content"
 
     def test_download_http_error_exits_1(self, tmp_path):
-        """_download_file() raises SystemExit(1) when requests raises HTTPError."""
-        import requests as req_lib
+        """_download_file() raises SystemExit(1) on HTTP error."""
+        from curl_cffi.requests.exceptions import RequestException
 
         dest = str(tmp_path / "test.zip")
-        with patch("requests.get", side_effect=req_lib.HTTPError("403 Forbidden")):
+        with patch(_CFFI_GET, side_effect=RequestException("403 Forbidden")):
             with pytest.raises(SystemExit) as exc_info:
                 _download_file(
                     "http://example.com/test.zip", dest, logging.getLogger("test")
@@ -158,11 +157,11 @@ class TestDownload:
         assert exc_info.value.code == 1
 
     def test_download_network_error_exits_1(self, tmp_path):
-        """_download_file() raises SystemExit(1) when requests raises ConnectionError."""
-        import requests as req_lib
+        """_download_file() raises SystemExit(1) on network error."""
+        from curl_cffi.requests.exceptions import RequestException
 
         dest = str(tmp_path / "test.zip")
-        with patch("requests.get", side_effect=req_lib.ConnectionError("Network unreachable")):
+        with patch(_CFFI_GET, side_effect=RequestException("Network unreachable")):
             with pytest.raises(SystemExit) as exc_info:
                 _download_file(
                     "http://example.com/test.zip", dest, logging.getLogger("test")
@@ -218,7 +217,7 @@ class TestExtractCSV:
 
         mock_resp = _mock_response(open(zip_path, "rb").read())
 
-        with patch("requests.get", return_value=mock_resp):
+        with patch(_CFFI_GET, return_value=mock_resp):
             result = extract_data(
                 "http://example.com/characteristics.zip",
                 str(tmp_path / "work"),
@@ -267,7 +266,7 @@ class TestExtractData:
         mock_resp = _mock_response(zip_bytes)
         work_dir = str(tmp_path / "work")
 
-        with patch("requests.get", return_value=mock_resp):
+        with patch(_CFFI_GET, return_value=mock_resp):
             result = extract_data(
                 "http://example.com/characteristics.zip",
                 work_dir,

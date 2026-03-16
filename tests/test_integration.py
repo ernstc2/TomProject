@@ -1,6 +1,6 @@
 """Integration wiring tests — verify pipeline call order and idempotency.
 
-These tests verify that main() calls extract_data -> load_csv -> upsert_batch
+These tests verify that main() calls extract_data -> load_csv -> upsert_bulk
 in the correct order and that a second run on unchanged data exits 0.
 
 All DB/network calls are mocked; no live SQL Server or network is needed.
@@ -47,7 +47,7 @@ _SAMPLE_DF = pd.DataFrame([
 # ---------------------------------------------------------------------------
 
 def test_main_calls_extract_then_load_then_upsert(tmp_config, tmp_log_dir, monkeypatch):
-    """main() must call extract_data, then load_csv, then upsert_batch in that order."""
+    """main() must call extract_data, then load_csv, then upsert_bulk in that order."""
     call_order = []
 
     monkeypatch.setattr(importer, "load_config", _make_patched_load_config(tmp_config, tmp_log_dir))
@@ -62,7 +62,7 @@ def test_main_calls_extract_then_load_then_upsert(tmp_config, tmp_log_dir, monke
     monkeypatch.setattr(importer, "get_connection", lambda cfg: _MockConn())
     monkeypatch.setattr(importer, "ensure_table", lambda conn, table: None)
     monkeypatch.setattr(
-        importer, "upsert_batch",
+        importer, "upsert_bulk",
         lambda conn, table, rows, logger: call_order.append("upsert") or {"inserted": 1, "updated": 0},
     )
 
@@ -93,7 +93,7 @@ def test_extract_receives_url_and_work_dir(tmp_config, tmp_log_dir, monkeypatch)
     monkeypatch.setattr(importer, "get_connection", lambda cfg: _MockConn())
     monkeypatch.setattr(importer, "ensure_table", lambda conn, table: None)
     monkeypatch.setattr(
-        importer, "upsert_batch",
+        importer, "upsert_bulk",
         lambda conn, table, rows, logger: {"inserted": 1, "updated": 0},
     )
 
@@ -128,7 +128,7 @@ def test_extract_csv_path_used_by_load_csv(tmp_config, tmp_log_dir, monkeypatch)
     monkeypatch.setattr(importer, "get_connection", lambda cfg: _MockConn())
     monkeypatch.setattr(importer, "ensure_table", lambda conn, table: None)
     monkeypatch.setattr(
-        importer, "upsert_batch",
+        importer, "upsert_bulk",
         lambda conn, table, rows, logger: {"inserted": 1, "updated": 0},
     )
 
@@ -165,7 +165,7 @@ def test_second_run_zero_changes(tmp_config, tmp_log_dir, monkeypatch):
         # Second run: nothing changed
         return {"inserted": 0, "updated": 0}
 
-    monkeypatch.setattr(importer, "upsert_batch", idempotent_upsert)
+    monkeypatch.setattr(importer, "upsert_bulk", idempotent_upsert)
 
     # First run
     with pytest.raises(SystemExit) as exc_info_1:

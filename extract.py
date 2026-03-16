@@ -1,4 +1,8 @@
-"""Extract module -- download characteristics.zip, validate, and extract CSV."""
+"""Extract module -- download characteristics.zip, validate, and extract CSV.
+
+Uses curl_cffi to impersonate Chrome's TLS fingerprint, which is required
+to bypass Akamai bot detection on the DLA website.
+"""
 
 import logging
 import os
@@ -6,15 +10,8 @@ import zipfile
 from urllib.parse import urljoin
 
 import lxml.html
-import requests
-
-HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/124.0.0.0 Safari/537.36"
-    )
-}
+from curl_cffi import requests as cffi_requests
+from curl_cffi.requests.exceptions import RequestException
 
 _log = logging.getLogger(__name__)
 
@@ -22,8 +19,9 @@ _log = logging.getLogger(__name__)
 def _resolve_download_url(page_url, logger, timeout=30):
     """Scrape the DLA reading room page and return the Characteristics.zip link.
 
-    Fetches *page_url*, parses the HTML, and finds an <a> tag whose text or
-    href contains 'characteristics' and ends with '.zip'.
+    Fetches *page_url* using Chrome TLS impersonation, parses the HTML,
+    and finds an <a> tag whose text or href contains 'characteristics'
+    and ends with '.zip'.
 
     Args:
         page_url: URL of the DLA FLIS Electronic Reading Room page.
@@ -37,13 +35,10 @@ def _resolve_download_url(page_url, logger, timeout=30):
         SystemExit(1): On HTTP/network error or if no matching link is found.
     """
     try:
-        resp = requests.get(page_url, headers=HEADERS, timeout=timeout)
+        resp = cffi_requests.get(page_url, impersonate="chrome", timeout=timeout)
         resp.raise_for_status()
-    except requests.HTTPError as exc:
-        logger.error("HTTP error fetching reading room page: %s", exc)
-        raise SystemExit(1) from exc
-    except requests.RequestException as exc:
-        logger.error("Network error fetching reading room page: %s", exc)
+    except RequestException as exc:
+        logger.error("Error fetching reading room page: %s", exc)
         raise SystemExit(1) from exc
 
     doc = lxml.html.fromstring(resp.text)
@@ -62,33 +57,32 @@ def _resolve_download_url(page_url, logger, timeout=30):
     raise SystemExit(1)
 
 
-def _download_file(url, dest_path, logger, timeout=120):
-    """Download *url* to *dest_path* using a browser User-Agent header.
+def _download_file(url, dest_path, logger, timeout=600):
+    """Download *url* to *dest_path* using Chrome TLS impersonation.
 
     Streams response in 64 KB chunks to avoid holding the full file in memory
-    (V_CHARACTERISTICS.CSV is ~2.9 GB uncompressed).
+    (Characteristics.zip is ~450 MB).
 
     Args:
         url: Direct download URL for the zip file.
         dest_path: Local file path to write the downloaded bytes into.
         logger: stdlib logger for error messages.
-        timeout: HTTP request timeout in seconds (default 120).
+        timeout: HTTP request timeout in seconds (default 600 for large file).
 
     Raises:
         SystemExit(1): On HTTP error (4xx/5xx) or network error.
     """
     try:
-        with requests.get(url, headers=HEADERS, stream=True, timeout=timeout) as resp:
-            resp.raise_for_status()
-            with open(dest_path, "wb") as fh:
-                for chunk in resp.iter_content(chunk_size=65536):
-                    if chunk:
-                        fh.write(chunk)
-    except requests.HTTPError as exc:
-        logger.error("HTTP error downloading zip: %s", exc)
-        raise SystemExit(1) from exc
-    except requests.RequestException as exc:
-        logger.error("Network error downloading zip: %s", exc)
+        resp = cffi_requests.get(
+            url, impersonate="chrome", stream=True, timeout=timeout
+        )
+        resp.raise_for_status()
+        with open(dest_path, "wb") as fh:
+            for chunk in resp.iter_content(chunk_size=65536):
+                if chunk:
+                    fh.write(chunk)
+    except RequestException as exc:
+        logger.error("Error downloading zip: %s", exc)
         raise SystemExit(1) from exc
 
 
@@ -145,13 +139,14 @@ def extract_data(url, work_dir, logger=None):
 
     Orchestrates the full extract pipeline:
       1. Create work_dir if it does not exist.
-      2. Download the zip from *url* with a browser User-Agent (DL-01).
-      3. Validate the downloaded file is a real zip, not an HTML error page (DL-02).
-      4. Extract the CSV member from the zip (DL-03).
-      5. Return the absolute path to the extracted CSV.
+      2. If *url* is not a direct .zip link, scrape the page to find it.
+      3. Download the zip using Chrome TLS impersonation (DL-01).
+      4. Validate the downloaded file is a real zip, not an HTML error page (DL-02).
+      5. Extract the CSV member from the zip (DL-03).
+      6. Return the absolute path to the extracted CSV.
 
     Args:
-        url: Direct download URL for characteristics.zip.
+        url: DLA reading room page URL or direct download URL for the zip.
         work_dir: Directory to write the zip and extracted CSV into.
         logger: Optional stdlib logger.  Falls back to module logger if None.
 

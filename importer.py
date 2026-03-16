@@ -10,7 +10,7 @@ import os
 import sys
 from logging.handlers import RotatingFileHandler
 
-from db import get_connection, ensure_table, upsert_batch
+from db import get_connection, ensure_table, upsert_batch, upsert_bulk
 from extract import extract_data
 from transform import load_csv
 
@@ -118,7 +118,7 @@ def main():
         # Convert DataFrame rows to list of dicts for upsert
         rows = df.to_dict(orient="records")
 
-        result = upsert_batch(conn, table, rows, logger)
+        result = upsert_bulk(conn, table, rows, logger)
         logger.info(
             "Upsert complete: inserted=%d updated=%d",
             result["inserted"],

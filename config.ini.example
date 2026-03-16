@@ -13,6 +13,7 @@ max_bytes = 10485760
 backup_count = 5
 
 [paths]
-; Update with actual download link from DLA FLIS Electronic Reading Room
+; DLA FLIS Electronic Reading Room page -- the importer scrapes this page
+; to find the Characteristics.zip download link automatically.
 download_url = https://www.dla.mil/Information-Operations/FLIS-Data-Electronic-Reading-Room/
 work_dir = work

@@ -48,7 +48,7 @@ def test_main_exits_0_on_success(tmp_config, tmp_log_dir, monkeypatch):
     monkeypatch.setattr(importer, "ensure_table", lambda conn, table: None)
     monkeypatch.setattr(
         importer,
-        "upsert_batch",
+        "upsert_bulk",
         lambda conn, table, rows, logger: {"inserted": 1, "updated": 0},
     )
 
@@ -95,7 +95,7 @@ def test_main_exits_1_on_connection_failure(tmp_config, tmp_log_dir, monkeypatch
 
 
 # ---------------------------------------------------------------------------
-# Pipeline wiring tests (02-02): main() must call load_csv and upsert_batch
+# Pipeline wiring tests (02-02): main() must call load_csv and upsert_bulk
 # ---------------------------------------------------------------------------
 
 import textwrap
@@ -157,7 +157,7 @@ def test_main_calls_load_csv(tmp_path, tmp_config, tmp_log_dir, monkeypatch):
     monkeypatch.setattr(importer, "get_connection", lambda cfg: _MockConn())
     monkeypatch.setattr(importer, "ensure_table", lambda conn, table: None)
     monkeypatch.setattr(
-        importer, "upsert_batch",
+        importer, "upsert_bulk",
         lambda conn, table, rows, logger: {"inserted": 1, "updated": 0},
     )
 
@@ -170,7 +170,7 @@ def test_main_calls_load_csv(tmp_path, tmp_config, tmp_log_dir, monkeypatch):
 
 
 def test_main_passes_df_to_upsert(tmp_path, tmp_config, tmp_log_dir, monkeypatch):
-    """main() must convert the DataFrame to rows and pass them to upsert_batch."""
+    """main() must convert the DataFrame to rows and pass them to upsert_bulk."""
     import pandas as pd
 
     expected_rows = [
@@ -201,7 +201,7 @@ def test_main_passes_df_to_upsert(tmp_path, tmp_config, tmp_log_dir, monkeypatch
         captured["rows"] = rows
         return {"inserted": len(rows), "updated": 0}
 
-    monkeypatch.setattr(importer, "upsert_batch", capturing_upsert)
+    monkeypatch.setattr(importer, "upsert_bulk", capturing_upsert)
 
     with pytest.raises(SystemExit) as exc_info:
         importer.main()
