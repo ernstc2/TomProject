@@ -5,6 +5,8 @@ Provides:
     ensure_table(conn, table)  -- Create V_CHARACTERISTICS_TESTING if it doesn't exist
     upsert_batch(conn, table, rows, logger) -- UPDATE+INSERT each row; never MERGE
     upsert_bulk(conn, table, rows, logger)  -- Staging table bulk upsert for large datasets
+    load_swap(conn, table, rows, logger)    -- Full table replacement via bulk load + rename
+    swap_mrc_columns(conn, table, logger)   -- Swap MRC/REQUIREMENTS_STATEMENT column names
 """
 
 import logging
@@ -288,10 +290,12 @@ def upsert_bulk(conn, table, rows, logger=None):
             ]
             cursor.executemany(insert_sql, params)
             if (i // _BULK_CHUNK) % 100 == 0:
-                log.info("Bulk load progress: %d / %d rows", min(i + _BULK_CHUNK, total), total)
+                loaded = min(i + _BULK_CHUNK, total)
+                pct = loaded / total * 100
+                log.info("Bulk load progress: %d / %d rows (%.1f%%)", loaded, total, pct)
 
         conn.commit()
-        log.info("Bulk load complete: %d rows in staging", total)
+        log.info("Bulk load complete: %d rows in staging (100.0%%)", total)
 
         # Create index on target NIIN if not exists (speeds up the JOIN)
         cursor.execute(
@@ -361,4 +365,183 @@ def upsert_bulk(conn, table, rows, logger=None):
         except Exception:
             pass
         log.error("Bulk upsert failed, transaction rolled back: %s", exc)
+        raise
+
+
+def load_swap(conn, table, rows, logger=None):
+    """Full table replacement via bulk load + rename, preserving prior data.
+
+    Strategy:
+      1. Bulk-load all rows into a new table (e.g. V_CHARACTERISTICS_NEW).
+      2. Only drop _PRIOR if the current table has data (safety check).
+      3. Rename the current table to _PRIOR.
+      4. Rename the new table to the real name.
+
+    The _PRIOR table is kept as a backup of the previous dataset.
+    The rename is a metadata-only operation, so users lose access for
+    milliseconds instead of the entire load duration.
+
+    Args:
+        conn:   An open database connection with autocommit=False.
+        table:  Target table name (e.g. "V_CHARACTERISTICS").
+        rows:   List of dicts with keys NIIN, MRC, REQUIREMENTS_STATEMENT, CLEAR_TEXT_REPLY.
+        logger: Optional logger; falls back to module-level logger if None.
+
+    Returns:
+        dict: {"loaded": N}
+
+    Raises:
+        Exception: Any database error, after cleaning up temp tables.
+    """
+    log = logger if logger is not None else _logger
+    new_table = f"{table}_NEW"
+    prior_table = f"{table}_PRIOR"
+    cursor = conn.cursor()
+
+    try:
+        # Clean up leftover _NEW from any previous failed run
+        cursor.execute(f"DROP TABLE IF EXISTS {new_table}")
+        conn.commit()
+
+        # 1. Create the new table
+        cursor.execute(
+            f"""
+            CREATE TABLE {new_table} (
+                NIIN                    varchar(50)   NOT NULL,
+                MRC                     varchar(max)  NOT NULL,
+                REQUIREMENTS_STATEMENT  varchar(max)  NULL,
+                CLEAR_TEXT_REPLY        varchar(max)  NULL
+            )
+            """
+        )
+        conn.commit()
+        log.info("Created %s for bulk load", new_table)
+
+        # 2. Bulk-load all rows into the new table
+        cursor.fast_executemany = True
+        import pyodbc as _pyodbc
+        cursor.setinputsizes(
+            [(_pyodbc.SQL_VARCHAR, 50, 0),
+             (_pyodbc.SQL_VARCHAR, 0, 0),
+             (_pyodbc.SQL_VARCHAR, 0, 0),
+             (_pyodbc.SQL_VARCHAR, 0, 0)]
+        )
+
+        insert_sql = (
+            f"INSERT INTO {new_table} "
+            f"(NIIN, MRC, REQUIREMENTS_STATEMENT, CLEAR_TEXT_REPLY) "
+            f"VALUES (?, ?, ?, ?)"
+        )
+
+        total = len(rows)
+        for i in range(0, total, _BULK_CHUNK):
+            chunk = rows[i : i + _BULK_CHUNK]
+            params = [
+                (r["NIIN"], r["MRC"], r["REQUIREMENTS_STATEMENT"], r["CLEAR_TEXT_REPLY"])
+                for r in chunk
+            ]
+            cursor.executemany(insert_sql, params)
+            if (i // _BULK_CHUNK) % 100 == 0:
+                loaded = min(i + _BULK_CHUNK, total)
+                pct = loaded / total * 100
+                log.info("Bulk load progress: %d / %d rows (%.1f%%)", loaded, total, pct)
+
+        conn.commit()
+        log.info("Bulk load complete: %d rows in %s (100.0%%)", total, new_table)
+
+        # 3. Add index on NIIN before swapping
+        cursor.execute(f"CREATE INDEX IX_{new_table}_NIIN ON {new_table} (NIIN)")
+        conn.commit()
+
+        # 4. Swap tables
+        cursor.execute(
+            "SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = ?",
+            (table,),
+        )
+        current_exists = cursor.fetchone() is not None
+
+        if current_exists:
+            # Check if current table has data before dropping _PRIOR
+            cursor.execute(f"SELECT COUNT(*) FROM {table}")
+            current_count = cursor.fetchone()[0]
+
+            if current_count > 0:
+                # Safe to replace _PRIOR — current table has data
+                cursor.execute(f"DROP TABLE IF EXISTS {prior_table}")
+                conn.commit()
+                log.info(
+                    "Dropped old %s (%s has %d rows to replace it)",
+                    prior_table, table, current_count,
+                )
+            else:
+                # Current table is empty — keep _PRIOR as safety net
+                log.warning(
+                    "%s is empty — keeping %s as safety net",
+                    table, prior_table,
+                )
+
+            cursor.execute(f"EXEC sp_rename '{table}', '{prior_table}'")
+            log.info("Renamed %s -> %s", table, prior_table)
+
+        cursor.execute(f"EXEC sp_rename '{new_table}', '{table}'")
+        conn.commit()
+        log.info("Table swap complete: %s is now live", table)
+
+        log.info("Load-swap complete: %d rows loaded into %s", total, table)
+        return {"loaded": total}
+
+    except Exception as exc:
+        conn.rollback()
+        # Clean up on failure — try to restore original if swap partially completed
+        try:
+            cursor.execute(
+                "SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = ?",
+                (table,),
+            )
+            target_exists = cursor.fetchone() is not None
+            if not target_exists:
+                cursor.execute(
+                    "SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = ?",
+                    (prior_table,),
+                )
+                if cursor.fetchone() is not None:
+                    cursor.execute(f"EXEC sp_rename '{prior_table}', '{table}'")
+                    conn.commit()
+                    log.info("Restored %s from %s after failure", table, prior_table)
+
+            cursor.execute(f"DROP TABLE IF EXISTS {new_table}")
+            conn.commit()
+        except Exception:
+            pass
+        log.error("Load-swap failed: %s", exc)
+        raise
+
+
+def swap_mrc_columns(conn, table, logger=None):
+    """Swap the MRC and REQUIREMENTS_STATEMENT column names.
+
+    Tom's original table has these two columns named in the opposite order
+    due to positional BULK INSERT mapping. This renames the columns after
+    load so downstream queries and reports continue to work unchanged.
+
+    Uses a three-step sp_rename through a temp name since SQL Server
+    cannot rename two columns simultaneously.
+
+    Args:
+        conn:   An open database connection with autocommit=False.
+        table:  Target table name (e.g. "V_CHARACTERISTICS_TESTING").
+        logger: Optional logger; falls back to module-level logger if None.
+    """
+    log = logger if logger is not None else _logger
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute(f"EXEC sp_rename '{table}.MRC', 'MRC_TEMP', 'COLUMN'")
+        cursor.execute(f"EXEC sp_rename '{table}.REQUIREMENTS_STATEMENT', 'MRC', 'COLUMN'")
+        cursor.execute(f"EXEC sp_rename '{table}.MRC_TEMP', 'REQUIREMENTS_STATEMENT', 'COLUMN'")
+        conn.commit()
+        log.info("Swapped MRC <-> REQUIREMENTS_STATEMENT columns on %s", table)
+    except Exception as exc:
+        conn.rollback()
+        log.error("Column swap failed on %s: %s", table, exc)
         raise

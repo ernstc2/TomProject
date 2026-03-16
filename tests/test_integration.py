@@ -62,15 +62,16 @@ def test_main_calls_extract_then_load_then_upsert(tmp_config, tmp_log_dir, monke
     monkeypatch.setattr(importer, "get_connection", lambda cfg: _MockConn())
     monkeypatch.setattr(importer, "ensure_table", lambda conn, table: None)
     monkeypatch.setattr(
-        importer, "upsert_bulk",
-        lambda conn, table, rows, logger: call_order.append("upsert") or {"inserted": 1, "updated": 0},
+        importer, "load_swap",
+        lambda conn, table, rows, logger: call_order.append("load_swap") or {"loaded": 1},
     )
+    monkeypatch.setattr(importer, "swap_mrc_columns", lambda conn, table, logger=None: None)
 
     with pytest.raises(SystemExit) as exc_info:
         importer.main()
 
     assert exc_info.value.code == 0
-    assert call_order == ["extract", "load", "upsert"]
+    assert call_order == ["extract", "load", "load_swap"]
 
 
 # ---------------------------------------------------------------------------
@@ -93,9 +94,10 @@ def test_extract_receives_url_and_work_dir(tmp_config, tmp_log_dir, monkeypatch)
     monkeypatch.setattr(importer, "get_connection", lambda cfg: _MockConn())
     monkeypatch.setattr(importer, "ensure_table", lambda conn, table: None)
     monkeypatch.setattr(
-        importer, "upsert_bulk",
-        lambda conn, table, rows, logger: {"inserted": 1, "updated": 0},
+        importer, "load_swap",
+        lambda conn, table, rows, logger: {"loaded": 1},
     )
+    monkeypatch.setattr(importer, "swap_mrc_columns", lambda conn, table, logger=None: None)
 
     with pytest.raises(SystemExit) as exc_info:
         importer.main()
@@ -128,9 +130,10 @@ def test_extract_csv_path_used_by_load_csv(tmp_config, tmp_log_dir, monkeypatch)
     monkeypatch.setattr(importer, "get_connection", lambda cfg: _MockConn())
     monkeypatch.setattr(importer, "ensure_table", lambda conn, table: None)
     monkeypatch.setattr(
-        importer, "upsert_bulk",
-        lambda conn, table, rows, logger: {"inserted": 1, "updated": 0},
+        importer, "load_swap",
+        lambda conn, table, rows, logger: {"loaded": 1},
     )
+    monkeypatch.setattr(importer, "swap_mrc_columns", lambda conn, table, logger=None: None)
 
     with pytest.raises(SystemExit) as exc_info:
         importer.main()
@@ -158,14 +161,12 @@ def test_second_run_zero_changes(tmp_config, tmp_log_dir, monkeypatch):
     monkeypatch.setattr(importer, "get_connection", lambda cfg: _MockConn())
     monkeypatch.setattr(importer, "ensure_table", lambda conn, table: None)
 
-    def idempotent_upsert(conn, table, rows, logger):
+    def idempotent_load_swap(conn, table, rows, logger):
         run_count[0] += 1
-        if run_count[0] == 1:
-            return {"inserted": 1, "updated": 0}
-        # Second run: nothing changed
-        return {"inserted": 0, "updated": 0}
+        return {"loaded": len(rows)}
 
-    monkeypatch.setattr(importer, "upsert_bulk", idempotent_upsert)
+    monkeypatch.setattr(importer, "load_swap", idempotent_load_swap)
+    monkeypatch.setattr(importer, "swap_mrc_columns", lambda conn, table, logger=None: None)
 
     # First run
     with pytest.raises(SystemExit) as exc_info_1:

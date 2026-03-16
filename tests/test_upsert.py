@@ -6,7 +6,7 @@ Run with: pytest tests/test_upsert.py -v -m integration
 import os
 import pytest
 
-from db import get_connection, ensure_table, upsert_batch
+from db import get_connection, ensure_table, upsert_batch, load_swap, swap_mrc_columns
 
 
 TABLE = "V_CHARACTERISTICS_TESTING"
@@ -201,3 +201,42 @@ def test_rollback_on_failure(db_conn, clean_table, db_config):
     assert count == 0, (
         f"Rollback failed: expected 0 rows after failure, found {count}"
     )
+
+
+@pytest.mark.integration
+def test_swap_mrc_columns(db_conn, clean_table, db_config):
+    """swap_mrc_columns renames MRC <-> REQUIREMENTS_STATEMENT on the live table."""
+    conn = db_conn
+
+    # Load a row so the table exists with the standard schema
+    rows = [
+        {
+            "NIIN": "TEST001",
+            "MRC": "mrc_value",
+            "REQUIREMENTS_STATEMENT": "req_value",
+            "CLEAR_TEXT_REPLY": "reply",
+        }
+    ]
+    load_swap(conn, TABLE, rows, logger=None)
+
+    # Swap columns
+    swap_mrc_columns(conn, TABLE, logger=None)
+
+    # After swap: what was the MRC column is now named REQUIREMENTS_STATEMENT
+    # and vice versa. Query by the NEW column names.
+    cursor = conn.cursor()
+    cursor.execute(
+        f"SELECT MRC, REQUIREMENTS_STATEMENT FROM {TABLE} WHERE NIIN = 'TEST001'"
+    )
+    row = cursor.fetchone()
+    assert row is not None
+    # The data that was in MRC ("mrc_value") should now be under REQUIREMENTS_STATEMENT
+    assert row[0] == "req_value", (
+        f"Expected MRC column to contain 'req_value' after swap, got '{row[0]}'"
+    )
+    assert row[1] == "mrc_value", (
+        f"Expected REQUIREMENTS_STATEMENT column to contain 'mrc_value' after swap, got '{row[1]}'"
+    )
+
+    # Swap back so clean_table teardown can still find the columns
+    swap_mrc_columns(conn, TABLE, logger=None)

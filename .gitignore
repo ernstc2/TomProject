@@ -18,9 +18,15 @@ __pycache__/
 dist/
 build/
 
+# Work directory (downloaded zip + extracted CSV, regenerated each run)
+work/
+
 # CSV data files (large, not tracked)
 *.CSV
 *.csv
+
+# Tom's original manual SQL scripts
+*.sql
 
 # Environment files
 .env

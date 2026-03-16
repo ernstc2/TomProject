@@ -48,9 +48,10 @@ def test_main_exits_0_on_success(tmp_config, tmp_log_dir, monkeypatch):
     monkeypatch.setattr(importer, "ensure_table", lambda conn, table: None)
     monkeypatch.setattr(
         importer,
-        "upsert_bulk",
-        lambda conn, table, rows, logger: {"inserted": 1, "updated": 0},
+        "load_swap",
+        lambda conn, table, rows, logger: {"loaded": 1},
     )
+    monkeypatch.setattr(importer, "swap_mrc_columns", lambda conn, table, logger=None: None)
 
     with pytest.raises(SystemExit) as exc_info:
         importer.main()
@@ -157,9 +158,10 @@ def test_main_calls_load_csv(tmp_path, tmp_config, tmp_log_dir, monkeypatch):
     monkeypatch.setattr(importer, "get_connection", lambda cfg: _MockConn())
     monkeypatch.setattr(importer, "ensure_table", lambda conn, table: None)
     monkeypatch.setattr(
-        importer, "upsert_bulk",
-        lambda conn, table, rows, logger: {"inserted": 1, "updated": 0},
+        importer, "load_swap",
+        lambda conn, table, rows, logger: {"loaded": 1},
     )
+    monkeypatch.setattr(importer, "swap_mrc_columns", lambda conn, table, logger=None: None)
 
     with pytest.raises(SystemExit) as exc_info:
         importer.main()
@@ -197,11 +199,12 @@ def test_main_passes_df_to_upsert(tmp_path, tmp_config, tmp_log_dir, monkeypatch
     monkeypatch.setattr(importer, "get_connection", lambda cfg: _MockConn())
     monkeypatch.setattr(importer, "ensure_table", lambda conn, table: None)
 
-    def capturing_upsert(conn, table, rows, logger):
+    def capturing_load_swap(conn, table, rows, logger):
         captured["rows"] = rows
-        return {"inserted": len(rows), "updated": 0}
+        return {"loaded": len(rows)}
 
-    monkeypatch.setattr(importer, "upsert_bulk", capturing_upsert)
+    monkeypatch.setattr(importer, "load_swap", capturing_load_swap)
+    monkeypatch.setattr(importer, "swap_mrc_columns", lambda conn, table, logger=None: None)
 
     with pytest.raises(SystemExit) as exc_info:
         importer.main()

@@ -10,7 +10,7 @@ import os
 import sys
 from logging.handlers import RotatingFileHandler
 
-from db import get_connection, ensure_table, upsert_batch, upsert_bulk
+from db import get_connection, ensure_table, upsert_batch, upsert_bulk, load_swap, swap_mrc_columns
 from extract import extract_data
 from transform import load_csv
 
@@ -99,10 +99,7 @@ def main():
         database = cfg["database"]["database"]
         logger.info("Connected to %s/%s", server, database)
 
-        # Ensure the target table exists
         table = cfg["database"]["table"]
-        ensure_table(conn, table)
-        logger.info("Table %s ensured", table)
 
         # Download and extract the CSV
         url = cfg["paths"]["download_url"]
@@ -118,12 +115,12 @@ def main():
         # Convert DataFrame rows to list of dicts for upsert
         rows = df.to_dict(orient="records")
 
-        result = upsert_bulk(conn, table, rows, logger)
-        logger.info(
-            "Upsert complete: inserted=%d updated=%d",
-            result["inserted"],
-            result["updated"],
-        )
+        result = load_swap(conn, table, rows, logger)
+        logger.info("Load-swap complete: %d rows loaded", result["loaded"])
+
+        # Swap MRC <-> REQUIREMENTS_STATEMENT column names to match
+        # Tom's existing table schema (columns are historically mislabeled)
+        swap_mrc_columns(conn, table, logger)
 
         logger.info("Run complete.")
         sys.exit(0)
