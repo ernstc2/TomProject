@@ -28,7 +28,7 @@ def load_config(path="config.ini"):
         FileNotFoundError: If the file does not exist or cannot be read.
     """
     cfg = configparser.ConfigParser()
-    read_files = cfg.read(path)
+    read_files = cfg.read(path, encoding="utf-8-sig")
     if not read_files:
         raise FileNotFoundError(
             f"Configuration file not found or empty: {path}"
@@ -117,10 +117,6 @@ def main():
 
         result = load_swap(conn, table, rows, logger)
         logger.info("Load-swap complete: %d rows loaded", result["loaded"])
-
-        # Swap MRC <-> REQUIREMENTS_STATEMENT column names to match
-        # Tom's existing table schema (columns are historically mislabeled)
-        swap_mrc_columns(conn, table, logger)
 
         logger.info("Run complete.")
         sys.exit(0)
