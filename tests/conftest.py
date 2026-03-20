@@ -66,6 +66,7 @@ def tmp_config_multitable(tmp_path):
     }
     config["V_CHARACTERISTICS"] = {
         "download_url": "https://www.dla.mil/Information-Operations/FLIS-Data-Electronic-Reading-Room/",
+        "zip_name": "Characteristics.zip",
         "csv_name": "V_CHARACTERISTICS.CSV",
         "target_table": "V_CHARACTERISTICS",
         "columns": "NIIN,MRC,REQUIREMENTS_STATEMENT,CLEAR_TEXT_REPLY",
@@ -76,6 +77,7 @@ def tmp_config_multitable(tmp_path):
     }
     config["V_CAGE_STATUS_AND_TYPE"] = {
         "download_url": "https://www.dla.mil/Information-Operations/FLIS-Data-Electronic-Reading-Room/",
+        "zip_name": "CAGE.zip",
         "csv_name": "V_CAGE_STATUS_AND_TYPE.CSV",
         "target_table": "V_CAGE_STATUS_AND_TYPE_TESTING",
         "columns": "CAGE_CODE,STATUS,TYPE,ASSOC_NAME,ASSOC_CAGE",
@@ -86,6 +88,7 @@ def tmp_config_multitable(tmp_path):
     }
     config["V_MANAGEMENT"] = {
         "download_url": "https://www.dla.mil/Information-Operations/FLIS-Data-Electronic-Reading-Room/",
+        "zip_name": "MANAGEMENT.zip",
         "csv_name": "V_FLIS_MANAGEMENT.CSV",
         "target_table": "V_MANAGEMENT_TESTING",
         "columns": "NIIN,EFFECTIVE_DATE,DEMIL_CODE",
@@ -96,6 +99,7 @@ def tmp_config_multitable(tmp_path):
     }
     config["V_MOE_RULE"] = {
         "download_url": "https://www.dla.mil/Information-Operations/FLIS-Data-Electronic-Reading-Room/",
+        "zip_name": "MOE_RULE.zip",
         "csv_name": "V_MOE_RULE.CSV",
         "target_table": "V_MOE_RULE_TESTING",
         "columns": "NIIN,MOE_RULE,DT_ASGND,SOS",
