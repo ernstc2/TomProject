@@ -38,6 +38,78 @@ def tmp_log_dir(tmp_path):
     return tmp_path / "logs"
 
 
+@pytest.fixture
+def tmp_config_multitable(tmp_path):
+    """Create a temporary config.ini with database, logging, paths, and two table sections.
+
+    Includes [V_CHARACTERISTICS], [V_CAGE_STATUS_AND_TYPE], [V_MANAGEMENT], and
+    [V_MOE_RULE] sections with all required keys. Returns the path to the config file.
+    """
+    config = configparser.ConfigParser()
+    config["database"] = {
+        "server": "TEST_SERVER",
+        "database": "TEST_DB",
+        "username": "test_user",
+        "password": "test_pass",
+        "table": "V_CHARACTERISTICS_TESTING",
+        "encrypt": "yes",
+        "trust_server_certificate": "yes",
+    }
+    config["logging"] = {
+        "log_dir": str(tmp_path / "logs"),
+        "max_bytes": "10485760",
+        "backup_count": "5",
+    }
+    config["paths"] = {
+        "download_url": "https://test.example.com/",
+        "work_dir": str(tmp_path / "work"),
+    }
+    config["V_CHARACTERISTICS"] = {
+        "download_url": "https://www.dla.mil/Information-Operations/FLIS-Data-Electronic-Reading-Room/",
+        "csv_name": "V_CHARACTERISTICS.CSV",
+        "target_table": "V_CHARACTERISTICS",
+        "columns": "NIIN,MRC,REQUIREMENTS_STATEMENT,CLEAR_TEXT_REPLY",
+        "key_columns": "NIIN,MRC",
+        "date_columns": "CLEAR_TEXT_REPLY",
+        "date_format": "dd-MMM-yy",
+        "drop_columns": "",
+    }
+    config["V_CAGE_STATUS_AND_TYPE"] = {
+        "download_url": "https://www.dla.mil/Information-Operations/FLIS-Data-Electronic-Reading-Room/",
+        "csv_name": "V_CAGE_STATUS_AND_TYPE.CSV",
+        "target_table": "V_CAGE_STATUS_AND_TYPE_TESTING",
+        "columns": "CAGE_CODE,STATUS,TYPE,ASSOC_NAME,ASSOC_CAGE",
+        "key_columns": "CAGE_CODE",
+        "date_columns": "",
+        "date_format": "",
+        "drop_columns": "PARENT_CAGE",
+    }
+    config["V_MANAGEMENT"] = {
+        "download_url": "https://www.dla.mil/Information-Operations/FLIS-Data-Electronic-Reading-Room/",
+        "csv_name": "V_FLIS_MANAGEMENT.CSV",
+        "target_table": "V_MANAGEMENT_TESTING",
+        "columns": "NIIN,EFFECTIVE_DATE,DEMIL_CODE",
+        "key_columns": "NIIN",
+        "date_columns": "EFFECTIVE_DATE",
+        "date_format": "dd-MMM-yyyy",
+        "drop_columns": "ROW_OBS_DT",
+    }
+    config["V_MOE_RULE"] = {
+        "download_url": "https://www.dla.mil/Information-Operations/FLIS-Data-Electronic-Reading-Room/",
+        "csv_name": "V_MOE_RULE.CSV",
+        "target_table": "V_MOE_RULE_TESTING",
+        "columns": "NIIN,MOE_RULE,DT_ASGND,SOS",
+        "key_columns": "NIIN",
+        "date_columns": "DT_ASGND",
+        "date_format": "dd-MMM-yy",
+        "drop_columns": "ROW_OBS_DT",
+    }
+    config_path = tmp_path / "config.ini"
+    with open(config_path, "w") as f:
+        config.write(f)
+    return config_path
+
+
 # ---------------------------------------------------------------------------
 # Integration fixtures — require a real config.ini with SQL Server credentials
 # ---------------------------------------------------------------------------

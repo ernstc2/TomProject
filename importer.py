@@ -36,6 +36,37 @@ def load_config(path="config.ini"):
     return cfg
 
 
+RESERVED_SECTIONS = {"DEFAULT", "database", "logging", "paths"}
+
+
+def get_table_sections(cfg):
+    """Return section names that represent table definitions.
+
+    Excludes reserved INI sections (database, logging, paths, DEFAULT).
+
+    Args:
+        cfg: A ConfigParser object.
+
+    Returns:
+        List of section name strings that are table definitions.
+    """
+    return [s for s in cfg.sections() if s not in RESERVED_SECTIONS]
+
+
+def parse_list(value):
+    """Parse comma-separated config string into a list of stripped strings.
+
+    Args:
+        value: A comma-separated string (e.g. "NIIN,MRC,CLEAR_TEXT_REPLY") or None.
+
+    Returns:
+        List of non-empty stripped strings. Returns [] for None or empty input.
+    """
+    if not value or not value.strip():
+        return []
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
 def setup_logger(log_dir, max_bytes=10_485_760, backup_count=5, logger_name="publog_importer"):
     """Create and configure a logger with rotating file and console handlers.
 
