@@ -16,20 +16,21 @@ from curl_cffi.requests.exceptions import RequestException
 _log = logging.getLogger(__name__)
 
 
-def _resolve_download_url(page_url, logger, timeout=30):
-    """Scrape the DLA reading room page and return the Characteristics.zip link.
+def _resolve_download_url(page_url, logger, zip_name="Characteristics.zip", timeout=30):
+    """Scrape the DLA reading room page and return the download link for zip_name.
 
     Fetches *page_url* using Chrome TLS impersonation, parses the HTML,
-    and finds an <a> tag whose text or href contains 'characteristics'
-    and ends with '.zip'.
+    and finds an <a> tag whose href ends with zip_name (case-insensitive).
 
     Args:
         page_url: URL of the DLA FLIS Electronic Reading Room page.
         logger: stdlib logger for error messages.
+        zip_name: Filename of the zip to locate (e.g. "CAGE.zip"). Default
+                  is "Characteristics.zip" for backwards compatibility.
         timeout: HTTP request timeout in seconds (default 30).
 
     Returns:
-        Absolute URL to the Characteristics.zip download.
+        Absolute URL to the zip download.
 
     Raises:
         SystemExit(1): On HTTP/network error or if no matching link is found.
@@ -41,19 +42,17 @@ def _resolve_download_url(page_url, logger, timeout=30):
         logger.error("Error fetching reading room page: %s", exc)
         raise SystemExit(1) from exc
 
+    target_suffix = zip_name.lower()
     doc = lxml.html.fromstring(resp.text)
     for link in doc.iterlinks():
-        element, _attr, href, _pos = link
-        text = (element.text_content() or "").strip().lower()
+        _element, _attr, href, _pos = link
         href_lower = href.lower()
-        if "characteristics" in (text + href_lower) and href_lower.endswith(".zip"):
+        if href_lower.endswith(target_suffix):
             download_url = urljoin(page_url, href)
             logger.info("Resolved download URL: %s", download_url)
             return download_url
 
-    logger.error(
-        "No Characteristics.zip link found on page: %s", page_url
-    )
+    logger.error("No %s link found on page: %s", zip_name, page_url)
     raise SystemExit(1)
 
 
@@ -109,15 +108,17 @@ def _validate_zip(path, logger):
         raise SystemExit(1)
 
 
-def _find_csv_member(zf, logger):
-    """Return the name of the first CSV member in *zf*.
+def _find_csv_member(zf, logger, csv_name=None):
+    """Return the name of the target CSV member in *zf*.
 
-    Matching is case-insensitive so both 'data.csv' and 'V_CHARACTERISTICS.CSV'
-    are found correctly.
+    If *csv_name* is provided, selects that exact member (case-insensitive).
+    Falls back to the first .CSV member when *csv_name* is None or not found.
 
     Args:
         zf: An open zipfile.ZipFile instance.
         logger: stdlib logger for error and warning messages.
+        csv_name: Optional expected CSV member name (e.g. 'V_FLIS_MANAGEMENT.CSV').
+                  When None, uses the first CSV member found (backwards compat).
 
     Returns:
         The member name string (e.g. 'V_CHARACTERISTICS.CSV').
@@ -129,17 +130,27 @@ def _find_csv_member(zf, logger):
     if not csv_members:
         logger.error("No CSV file found inside zip. Contents: %s", zf.namelist())
         raise SystemExit(1)
+
+    if csv_name:
+        target = csv_name.upper()
+        matched = [n for n in csv_members if n.upper() == target]
+        if matched:
+            return matched[0]
+        logger.warning(
+            "csv_name=%r not found in zip; using first CSV: %s", csv_name, csv_members
+        )
+
     if len(csv_members) > 1:
         logger.warning("Multiple CSV files in zip; using first: %s", csv_members)
     return csv_members[0]
 
 
-def extract_data(url, work_dir, logger=None):
-    """Download characteristics.zip, validate, extract CSV, return absolute path.
+def extract_data(url, work_dir, logger=None, zip_name="Characteristics.zip", csv_name=None):
+    """Download zip, validate, extract CSV, return absolute path.
 
     Orchestrates the full extract pipeline:
       1. Create work_dir if it does not exist.
-      2. If *url* is not a direct .zip link, scrape the page to find it.
+      2. If *url* is not a direct .zip link, scrape the page to find *zip_name*.
       3. Download the zip using Chrome TLS impersonation (DL-01).
       4. Validate the downloaded file is a real zip, not an HTML error page (DL-02).
       5. Extract the CSV member from the zip (DL-03).
@@ -149,6 +160,10 @@ def extract_data(url, work_dir, logger=None):
         url: DLA reading room page URL or direct download URL for the zip.
         work_dir: Directory to write the zip and extracted CSV into.
         logger: Optional stdlib logger.  Falls back to module logger if None.
+        zip_name: Filename of the zip to find/download (e.g. "CAGE.zip").
+                  Default "Characteristics.zip" for backwards compatibility.
+        csv_name: Expected CSV member name inside the zip (e.g. "V_FLIS_MANAGEMENT.CSV").
+                  When None, uses the first CSV member found (backwards compat).
 
     Returns:
         Absolute path (str) to the extracted CSV file.
@@ -160,10 +175,10 @@ def extract_data(url, work_dir, logger=None):
     os.makedirs(work_dir, exist_ok=True)
 
     if not url.lower().endswith(".zip"):
-        log.info("URL is not a direct zip link, scraping page: %s", url)
-        url = _resolve_download_url(url, log)
+        log.info("Scraping reading room page for %s: %s", zip_name, url)
+        url = _resolve_download_url(url, log, zip_name=zip_name)
 
-    zip_path = os.path.join(work_dir, "characteristics.zip")
+    zip_path = os.path.join(work_dir, zip_name)
     log.info("Downloading %s -> %s", url, zip_path)
     _download_file(url, zip_path, log)
 
@@ -171,7 +186,7 @@ def extract_data(url, work_dir, logger=None):
     _validate_zip(zip_path, log)
 
     with zipfile.ZipFile(zip_path, "r") as zf:
-        member = _find_csv_member(zf, log)
+        member = _find_csv_member(zf, log, csv_name=csv_name)
         zf.extract(member, work_dir)
 
     csv_path = os.path.abspath(os.path.join(work_dir, member))
