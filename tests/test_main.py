@@ -2,6 +2,7 @@
 
 DB functions are mocked so these are pure unit tests (no live SQL Server needed).
 """
+import logging
 import pytest
 
 import importer
@@ -14,44 +15,193 @@ class _MockConn:
         pass
 
 
-def test_main_exits_0_on_success(tmp_config, tmp_log_dir, monkeypatch):
-    """main() exits with code 0 when config is valid and DB calls succeed."""
-    import pandas as pd
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
+def _make_multitable_patched_config(tmp_config_multitable, tmp_log_dir):
+    """Return a load_config replacement pointing at the multitable fixture config."""
+    real_load_config = importer.load_config
+
+    def patched_load_config(path="config.ini"):
+        cfg = real_load_config(str(tmp_config_multitable))
+        cfg["logging"]["log_dir"] = str(tmp_log_dir)
+        return cfg
+
+    return patched_load_config
+
+
+def _make_singletable_patched_config(tmp_config, tmp_log_dir):
+    """Return a load_config replacement pointing at the singletable fixture config."""
     real_load_config = importer.load_config
 
     def patched_load_config(path="config.ini"):
         cfg = real_load_config(str(tmp_config))
-        # Override log_dir to use our tmp dir
-        if "logging" not in cfg:
-            cfg["logging"] = {}
         cfg["logging"]["log_dir"] = str(tmp_log_dir)
-        # Provide csv_path now required by main()
-        if "paths" not in cfg:
-            cfg["paths"] = {}
-        cfg["paths"]["csv_path"] = "dummy.csv"
         return cfg
 
-    mock_conn = _MockConn()
+    return patched_load_config
 
-    monkeypatch.setattr(importer, "load_config", patched_load_config)
-    monkeypatch.setattr(importer, "extract_data", lambda url, work_dir, logger=None: "dummy.csv")
-    monkeypatch.setattr(
-        importer,
-        "load_csv",
-        lambda path, logger=None: pd.DataFrame([
-            {"NIIN": "T01", "MRC": "A",
-             "REQUIREMENTS_STATEMENT": "Req", "CLEAR_TEXT_REPLY": "Reply"},
-        ]),
-    )
-    monkeypatch.setattr(importer, "get_connection", lambda cfg: mock_conn)
-    monkeypatch.setattr(importer, "ensure_table", lambda conn, table: None)
-    monkeypatch.setattr(
-        importer,
-        "load_swap",
-        lambda conn, table, rows, logger: {"loaded": 1},
-    )
-    monkeypatch.setattr(importer, "swap_mrc_columns", lambda conn, table, logger=None: None)
+
+# ---------------------------------------------------------------------------
+# parse_args tests (PIP-01, PIP-02)
+# ---------------------------------------------------------------------------
+
+def test_parse_args_no_args(monkeypatch):
+    """parse_args() with no --table flag returns args.table == None."""
+    monkeypatch.setattr("sys.argv", ["importer.py"])
+    args = importer.parse_args()
+    assert args.table is None
+
+
+def test_parse_args_with_table(monkeypatch):
+    """parse_args() with --table V_MANAGEMENT returns args.table == 'V_MANAGEMENT'."""
+    monkeypatch.setattr("sys.argv", ["importer.py", "--table", "V_MANAGEMENT"])
+    args = importer.parse_args()
+    assert args.table == "V_MANAGEMENT"
+
+
+# ---------------------------------------------------------------------------
+# Multi-table main() loop tests (PIP-01 through PIP-04)
+# ---------------------------------------------------------------------------
+
+def test_main_runs_all_tables(tmp_config_multitable, tmp_log_dir, monkeypatch):
+    """When no --table flag is given, main() calls run_table for all table sections."""
+    monkeypatch.setattr("sys.argv", ["importer.py"])
+    processed = []
+
+    def fake_run_table(cfg, section, conn, logger):
+        processed.append(section)
+
+    monkeypatch.setattr(importer, "load_config", _make_multitable_patched_config(tmp_config_multitable, tmp_log_dir))
+    monkeypatch.setattr(importer, "get_connection", lambda cfg: _MockConn())
+    monkeypatch.setattr(importer, "run_table", fake_run_table)
+
+    with pytest.raises(SystemExit) as exc_info:
+        importer.main()
+
+    assert exc_info.value.code == 0
+    # All 4 table sections should have been processed
+    assert "V_CHARACTERISTICS" in processed
+    assert "V_MANAGEMENT" in processed
+    assert "V_CAGE_STATUS_AND_TYPE" in processed
+    assert "V_MOE_RULE" in processed
+    assert len(processed) == 4
+
+
+def test_main_runs_only_specified_table(tmp_config_multitable, tmp_log_dir, monkeypatch):
+    """When --table V_MANAGEMENT is given, main() calls run_table only for V_MANAGEMENT."""
+    monkeypatch.setattr("sys.argv", ["importer.py", "--table", "V_MANAGEMENT"])
+    processed = []
+
+    def fake_run_table(cfg, section, conn, logger):
+        processed.append(section)
+
+    monkeypatch.setattr(importer, "load_config", _make_multitable_patched_config(tmp_config_multitable, tmp_log_dir))
+    monkeypatch.setattr(importer, "get_connection", lambda cfg: _MockConn())
+    monkeypatch.setattr(importer, "run_table", fake_run_table)
+
+    with pytest.raises(SystemExit) as exc_info:
+        importer.main()
+
+    assert exc_info.value.code == 0
+    assert processed == ["V_MANAGEMENT"]
+
+
+def test_main_unknown_table_exits_1(tmp_config_multitable, tmp_log_dir, monkeypatch):
+    """When --table NONEXISTENT is given, main() exits with code 1."""
+    monkeypatch.setattr("sys.argv", ["importer.py", "--table", "NONEXISTENT"])
+
+    monkeypatch.setattr(importer, "load_config", _make_multitable_patched_config(tmp_config_multitable, tmp_log_dir))
+    monkeypatch.setattr(importer, "get_connection", lambda cfg: _MockConn())
+
+    with pytest.raises(SystemExit) as exc_info:
+        importer.main()
+
+    assert exc_info.value.code == 1
+
+
+def test_main_failure_isolation(tmp_config_multitable, tmp_log_dir, monkeypatch):
+    """A failure in one table does not abort others; main() exits with code 1."""
+    monkeypatch.setattr("sys.argv", ["importer.py"])
+    processed = []
+
+    def fake_run_table(cfg, section, conn, logger):
+        processed.append(section)
+        if section == "V_MANAGEMENT":
+            raise RuntimeError("Simulated failure")
+
+    monkeypatch.setattr(importer, "load_config", _make_multitable_patched_config(tmp_config_multitable, tmp_log_dir))
+    monkeypatch.setattr(importer, "get_connection", lambda cfg: _MockConn())
+    monkeypatch.setattr(importer, "run_table", fake_run_table)
+
+    with pytest.raises(SystemExit) as exc_info:
+        importer.main()
+
+    assert exc_info.value.code == 1
+    # All tables should have been attempted (failure isolation)
+    assert "V_CHARACTERISTICS" in processed
+    assert "V_MANAGEMENT" in processed
+    assert "V_CAGE_STATUS_AND_TYPE" in processed
+    assert "V_MOE_RULE" in processed
+
+
+def test_main_all_succeed_exits_0(tmp_config_multitable, tmp_log_dir, monkeypatch):
+    """When all tables succeed, main() exits with code 0."""
+    monkeypatch.setattr("sys.argv", ["importer.py"])
+
+    monkeypatch.setattr(importer, "load_config", _make_multitable_patched_config(tmp_config_multitable, tmp_log_dir))
+    monkeypatch.setattr(importer, "get_connection", lambda cfg: _MockConn())
+    monkeypatch.setattr(importer, "run_table", lambda cfg, section, conn, logger: None)
+
+    with pytest.raises(SystemExit) as exc_info:
+        importer.main()
+
+    assert exc_info.value.code == 0
+
+
+def test_main_logs_table_name(tmp_config_multitable, tmp_log_dir, monkeypatch):
+    """Log output contains 'Processing table: V_CHARACTERISTICS' when that section runs."""
+    monkeypatch.setattr("sys.argv", ["importer.py"])
+    log_messages = []
+
+    class CapturingHandler(logging.Handler):
+        def emit(self, record):
+            log_messages.append(self.format(record))
+
+    monkeypatch.setattr(importer, "load_config", _make_multitable_patched_config(tmp_config_multitable, tmp_log_dir))
+    monkeypatch.setattr(importer, "get_connection", lambda cfg: _MockConn())
+    monkeypatch.setattr(importer, "run_table", lambda cfg, section, conn, logger: None)
+
+    # Capture log output by patching setup_logger to add a capturing handler
+    real_setup_logger = importer.setup_logger
+
+    def capturing_setup_logger(*args, **kwargs):
+        logger = real_setup_logger(*args, **kwargs)
+        handler = CapturingHandler()
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        logger.addHandler(handler)
+        return logger
+
+    monkeypatch.setattr(importer, "setup_logger", capturing_setup_logger)
+
+    with pytest.raises(SystemExit):
+        importer.main()
+
+    assert any("Processing table: V_CHARACTERISTICS" in msg for msg in log_messages)
+
+
+# ---------------------------------------------------------------------------
+# Legacy single-table tests — updated for multi-table main()
+# ---------------------------------------------------------------------------
+
+def test_main_exits_0_on_success(tmp_config_multitable, tmp_log_dir, monkeypatch):
+    """main() exits with code 0 when config is valid and all run_table calls succeed."""
+    monkeypatch.setattr("sys.argv", ["importer.py"])
+
+    monkeypatch.setattr(importer, "load_config", _make_multitable_patched_config(tmp_config_multitable, tmp_log_dir))
+    monkeypatch.setattr(importer, "get_connection", lambda cfg: _MockConn())
+    monkeypatch.setattr(importer, "run_table", lambda cfg, section, conn, logger: None)
 
     with pytest.raises(SystemExit) as exc_info:
         importer.main()
@@ -60,6 +210,7 @@ def test_main_exits_0_on_success(tmp_config, tmp_log_dir, monkeypatch):
 
 def test_main_exits_1_on_missing_config(monkeypatch):
     """main() exits with code 1 when config.ini does not exist."""
+    monkeypatch.setattr("sys.argv", ["importer.py"])
     monkeypatch.setattr(
         importer,
         "load_config",
@@ -72,16 +223,10 @@ def test_main_exits_1_on_missing_config(monkeypatch):
     assert exc_info.value.code == 1
 
 
-def test_main_exits_1_on_connection_failure(tmp_config, tmp_log_dir, monkeypatch):
+def test_main_exits_1_on_connection_failure(tmp_config_multitable, tmp_log_dir, monkeypatch):
     """main() exits with code 1 when DB connection raises an exception."""
-    real_load_config = importer.load_config
-
-    def patched_load_config(path="config.ini"):
-        cfg = real_load_config(str(tmp_config))
-        cfg["logging"]["log_dir"] = str(tmp_log_dir)
-        return cfg
-
-    monkeypatch.setattr(importer, "load_config", patched_load_config)
+    monkeypatch.setattr("sys.argv", ["importer.py"])
+    monkeypatch.setattr(importer, "load_config", _make_multitable_patched_config(tmp_config_multitable, tmp_log_dir))
     monkeypatch.setattr(
         importer,
         "get_connection",
@@ -96,7 +241,7 @@ def test_main_exits_1_on_connection_failure(tmp_config, tmp_log_dir, monkeypatch
 
 
 # ---------------------------------------------------------------------------
-# Pipeline wiring tests (02-02): main() must call load_csv and upsert_bulk
+# Pipeline wiring tests — main() delegates to run_table
 # ---------------------------------------------------------------------------
 
 import textwrap
@@ -109,106 +254,20 @@ def _make_csv(tmp_path, content, filename="test.csv"):
     return str(p)
 
 
-def _patch_config_with_csv(tmp_config, tmp_log_dir, csv_path):
-    """Return a load_config replacement that points to csv_path via config."""
-    real_load_config = importer.load_config
+def test_main_calls_run_table_for_each_section(tmp_config_multitable, tmp_log_dir, monkeypatch):
+    """main() delegates per-table work to run_table, not inline logic."""
+    monkeypatch.setattr("sys.argv", ["importer.py"])
+    run_table_calls = []
 
-    def patched_load_config(path="config.ini"):
-        import configparser
-        cfg = real_load_config(str(tmp_config))
-        cfg["logging"]["log_dir"] = str(tmp_log_dir)
-        if "paths" not in cfg:
-            cfg["paths"] = {}
-        cfg["paths"]["csv_path"] = str(csv_path)
-        return cfg
+    def tracking_run_table(cfg, section, conn, logger):
+        run_table_calls.append(section)
 
-    return patched_load_config
-
-
-_SAMPLE_CSV = (
-    "NIIN,MRC,REQUIREMENTS_STATEMENT,CLEAR_TEXT_REPLY\n"
-    "000000042,A,Req one,Reply one\n"
-    "000000043,B,Req two,Reply two\n"
-)
-
-
-def test_main_calls_load_csv(tmp_path, tmp_config, tmp_log_dir, monkeypatch):
-    """main() must call transform.load_csv with the path returned by extract_data."""
-    load_csv_calls = []
-
-    import pandas as pd
-
-    def fake_load_csv(path, logger=None):
-        load_csv_calls.append(path)
-        return pd.DataFrame([
-            {"NIIN": "000000042", "MRC": "A",
-             "REQUIREMENTS_STATEMENT": "Req one", "CLEAR_TEXT_REPLY": "Reply one"},
-        ])
-
-    real_load_config = importer.load_config
-
-    def patched_load_config(path="config.ini"):
-        cfg = real_load_config(str(tmp_config))
-        cfg["logging"]["log_dir"] = str(tmp_log_dir)
-        return cfg
-
-    monkeypatch.setattr(importer, "load_config", patched_load_config)
-    monkeypatch.setattr(importer, "extract_data", lambda url, work_dir, logger=None: "/mock/extract.csv")
-    monkeypatch.setattr(importer, "load_csv", fake_load_csv)
+    monkeypatch.setattr(importer, "load_config", _make_multitable_patched_config(tmp_config_multitable, tmp_log_dir))
     monkeypatch.setattr(importer, "get_connection", lambda cfg: _MockConn())
-    monkeypatch.setattr(importer, "ensure_table", lambda conn, table: None)
-    monkeypatch.setattr(
-        importer, "load_swap",
-        lambda conn, table, rows, logger: {"loaded": 1},
-    )
-    monkeypatch.setattr(importer, "swap_mrc_columns", lambda conn, table, logger=None: None)
+    monkeypatch.setattr(importer, "run_table", tracking_run_table)
 
     with pytest.raises(SystemExit) as exc_info:
         importer.main()
 
     assert exc_info.value.code == 0
-    assert len(load_csv_calls) == 1
-    assert load_csv_calls[0] == "/mock/extract.csv"
-
-
-def test_main_passes_df_to_upsert(tmp_path, tmp_config, tmp_log_dir, monkeypatch):
-    """main() must convert the DataFrame to rows and pass them to upsert_bulk."""
-    import pandas as pd
-
-    expected_rows = [
-        {"NIIN": "000000042", "MRC": "A",
-         "REQUIREMENTS_STATEMENT": "Req one", "CLEAR_TEXT_REPLY": "Reply one"},
-        {"NIIN": "000000043", "MRC": "B",
-         "REQUIREMENTS_STATEMENT": "Req two", "CLEAR_TEXT_REPLY": "Reply two"},
-    ]
-    captured = {}
-
-    real_load_config = importer.load_config
-
-    def patched_load_config(path="config.ini"):
-        cfg = real_load_config(str(tmp_config))
-        cfg["logging"]["log_dir"] = str(tmp_log_dir)
-        return cfg
-
-    monkeypatch.setattr(importer, "load_config", patched_load_config)
-    monkeypatch.setattr(importer, "extract_data", lambda url, work_dir, logger=None: "/mock/extract.csv")
-    monkeypatch.setattr(
-        importer, "load_csv",
-        lambda path, logger=None: pd.DataFrame(expected_rows),
-    )
-    monkeypatch.setattr(importer, "get_connection", lambda cfg: _MockConn())
-    monkeypatch.setattr(importer, "ensure_table", lambda conn, table: None)
-
-    def capturing_load_swap(conn, table, rows, logger):
-        captured["rows"] = rows
-        return {"loaded": len(rows)}
-
-    monkeypatch.setattr(importer, "load_swap", capturing_load_swap)
-    monkeypatch.setattr(importer, "swap_mrc_columns", lambda conn, table, logger=None: None)
-
-    with pytest.raises(SystemExit) as exc_info:
-        importer.main()
-
-    assert exc_info.value.code == 0
-    assert "rows" in captured
-    assert captured["rows"] == expected_rows
+    assert len(run_table_calls) == 4
