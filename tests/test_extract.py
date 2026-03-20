@@ -54,6 +54,8 @@ READING_ROOM_HTML = """
 <tr><td>CAGE</td><td><a href="/files/CAGE.zip">CAGE.zip</a></td></tr>
 <tr><td>Characteristics</td><td><a href="/files/Characteristics.zip">Characteristics.zip</a></td></tr>
 <tr><td>History</td><td><a href="/files/History.zip">History.zip</a></td></tr>
+<tr><td>Management</td><td><a href="/files/MANAGEMENT.zip">MANAGEMENT.zip</a></td></tr>
+<tr><td>MOE Rule</td><td><a href="/files/MOE_RULE.zip">MOE_RULE.zip</a></td></tr>
 </table>
 </body></html>
 """
@@ -278,3 +280,213 @@ class TestExtractData:
             contents = fh.read()
         assert "NIIN" in contents
         assert "000000042" in contents
+
+
+# ---------------------------------------------------------------------------
+# zip_name parameter tests for _resolve_download_url
+# ---------------------------------------------------------------------------
+
+class TestResolveDownloadUrlZipName:
+    """_resolve_download_url() must accept zip_name and find the matching link."""
+
+    def test_finds_cage_zip(self):
+        """_resolve_download_url with zip_name='CAGE.zip' returns URL ending /files/CAGE.zip."""
+        mock_resp = MagicMock()
+        mock_resp.text = READING_ROOM_HTML
+        mock_resp.raise_for_status.return_value = None
+
+        with patch(_CFFI_GET, return_value=mock_resp):
+            result = _resolve_download_url(
+                "https://www.dla.mil/reading-room/",
+                logging.getLogger("test"),
+                zip_name="CAGE.zip",
+            )
+
+        assert result.endswith("/files/CAGE.zip")
+
+    def test_finds_management_zip(self):
+        """_resolve_download_url with zip_name='MANAGEMENT.zip' returns URL ending /files/MANAGEMENT.zip."""
+        mock_resp = MagicMock()
+        mock_resp.text = READING_ROOM_HTML
+        mock_resp.raise_for_status.return_value = None
+
+        with patch(_CFFI_GET, return_value=mock_resp):
+            result = _resolve_download_url(
+                "https://www.dla.mil/reading-room/",
+                logging.getLogger("test"),
+                zip_name="MANAGEMENT.zip",
+            )
+
+        assert result.endswith("/files/MANAGEMENT.zip")
+
+    def test_finds_moe_rule_zip(self):
+        """_resolve_download_url with zip_name='MOE_RULE.zip' returns URL ending /files/MOE_RULE.zip."""
+        mock_resp = MagicMock()
+        mock_resp.text = READING_ROOM_HTML
+        mock_resp.raise_for_status.return_value = None
+
+        with patch(_CFFI_GET, return_value=mock_resp):
+            result = _resolve_download_url(
+                "https://www.dla.mil/reading-room/",
+                logging.getLogger("test"),
+                zip_name="MOE_RULE.zip",
+            )
+
+        assert result.endswith("/files/MOE_RULE.zip")
+
+    def test_no_matching_zip_exits_1(self):
+        """_resolve_download_url with zip_name='NONEXISTENT.zip' raises SystemExit(1)."""
+        mock_resp = MagicMock()
+        mock_resp.text = READING_ROOM_HTML
+        mock_resp.raise_for_status.return_value = None
+
+        with patch(_CFFI_GET, return_value=mock_resp):
+            with pytest.raises(SystemExit) as exc_info:
+                _resolve_download_url(
+                    "https://www.dla.mil/reading-room/",
+                    logging.getLogger("test"),
+                    zip_name="NONEXISTENT.zip",
+                )
+        assert exc_info.value.code == 1
+
+    def test_case_insensitive_zip_name(self):
+        """_resolve_download_url with zip_name='cage.zip' (lowercase) finds /files/CAGE.zip."""
+        mock_resp = MagicMock()
+        mock_resp.text = READING_ROOM_HTML
+        mock_resp.raise_for_status.return_value = None
+
+        with patch(_CFFI_GET, return_value=mock_resp):
+            result = _resolve_download_url(
+                "https://www.dla.mil/reading-room/",
+                logging.getLogger("test"),
+                zip_name="cage.zip",
+            )
+
+        assert result.endswith("/files/CAGE.zip")
+
+
+# ---------------------------------------------------------------------------
+# csv_name parameter tests for _find_csv_member
+# ---------------------------------------------------------------------------
+
+class TestFindCsvMemberByName:
+    """_find_csv_member() must accept csv_name and select the matching member."""
+
+    def test_selects_named_member(self, tmp_path):
+        """_find_csv_member with csv_name='V_FLIS_MANAGEMENT.CSV' selects that member."""
+        zip_path = str(tmp_path / "management.zip")
+        _create_zip(zip_path, {
+            "V_FLIS_MANAGEMENT.CSV": "col1,col2\n",
+            "OTHER.CSV": "other data\n",
+        })
+
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            member = _find_csv_member(zf, logging.getLogger("test"), csv_name="V_FLIS_MANAGEMENT.CSV")
+
+        assert member == "V_FLIS_MANAGEMENT.CSV"
+
+    def test_csv_name_case_insensitive(self, tmp_path):
+        """_find_csv_member with csv_name='v_flis_management.csv' finds 'V_FLIS_MANAGEMENT.CSV'."""
+        zip_path = str(tmp_path / "management.zip")
+        _create_zip(zip_path, {
+            "V_FLIS_MANAGEMENT.CSV": "col1,col2\n",
+        })
+
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            member = _find_csv_member(zf, logging.getLogger("test"), csv_name="v_flis_management.csv")
+
+        assert member == "V_FLIS_MANAGEMENT.CSV"
+
+    def test_csv_name_not_found_falls_back(self, tmp_path):
+        """_find_csv_member with csv_name='MISSING.CSV' falls back to first CSV member."""
+        zip_path = str(tmp_path / "test.zip")
+        _create_zip(zip_path, {
+            "FIRST.CSV": "data\n",
+        })
+
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            member = _find_csv_member(zf, logging.getLogger("test"), csv_name="MISSING.CSV")
+
+        assert member == "FIRST.CSV"
+
+    def test_no_csv_name_uses_first(self, tmp_path):
+        """_find_csv_member with csv_name=None uses first CSV member (backwards compat)."""
+        zip_path = str(tmp_path / "test.zip")
+        _create_zip(zip_path, {
+            "FIRST.CSV": "data\n",
+            "SECOND.CSV": "more data\n",
+        })
+
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            member = _find_csv_member(zf, logging.getLogger("test"), csv_name=None)
+
+        assert member == "FIRST.CSV"
+
+
+# ---------------------------------------------------------------------------
+# zip_name and csv_name parameter tests for extract_data
+# ---------------------------------------------------------------------------
+
+class TestExtractDataZipName:
+    """extract_data() must accept zip_name and csv_name and route downloads accordingly."""
+
+    def test_saves_zip_as_zip_name(self, tmp_path):
+        """extract_data with zip_name='CAGE.zip' saves file as 'CAGE.zip' in work_dir."""
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("V_CAGE_STATUS_AND_TYPE.CSV", "CAGE_CODE,NAME\n12345,ACME\n")
+        zip_bytes = buf.getvalue()
+
+        mock_resp = _mock_response(zip_bytes)
+        work_dir = str(tmp_path / "work")
+
+        with patch(_CFFI_GET, return_value=mock_resp):
+            result = extract_data(
+                "http://example.com/CAGE.zip",
+                work_dir,
+                zip_name="CAGE.zip",
+            )
+
+        assert os.path.exists(os.path.join(work_dir, "CAGE.zip"))
+        assert not os.path.exists(os.path.join(work_dir, "characteristics.zip"))
+
+    def test_passes_csv_name_to_find_member(self, tmp_path):
+        """extract_data with csv_name='V_FLIS_MANAGEMENT.CSV' extracts that specific member."""
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("V_FLIS_MANAGEMENT.CSV", "NIIN,DATE\n001,01-JAN-2024\n")
+        zip_bytes = buf.getvalue()
+
+        mock_resp = _mock_response(zip_bytes)
+        work_dir = str(tmp_path / "work")
+
+        with patch(_CFFI_GET, return_value=mock_resp):
+            result = extract_data(
+                "http://example.com/MANAGEMENT.zip",
+                work_dir,
+                zip_name="MANAGEMENT.zip",
+                csv_name="V_FLIS_MANAGEMENT.CSV",
+            )
+
+        assert result.endswith("V_FLIS_MANAGEMENT.CSV")
+        assert os.path.exists(result)
+
+    def test_default_zip_name_backwards_compat(self, tmp_path):
+        """extract_data with no zip_name argument still works for Characteristics."""
+        csv_content = "NIIN,MRC\n001,A\n"
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("V_CHARACTERISTICS.CSV", csv_content)
+        zip_bytes = buf.getvalue()
+
+        mock_resp = _mock_response(zip_bytes)
+        work_dir = str(tmp_path / "work")
+
+        with patch(_CFFI_GET, return_value=mock_resp):
+            result = extract_data(
+                "http://example.com/Characteristics.zip",
+                work_dir,
+            )
+
+        assert os.path.exists(os.path.join(work_dir, "Characteristics.zip"))
+        assert result.endswith("V_CHARACTERISTICS.CSV")
