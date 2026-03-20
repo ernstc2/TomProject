@@ -282,7 +282,7 @@ def test_run_table_passes_config_to_load_csv(tmp_config_multitable, tmp_log_dir,
     import pandas as pd
     captured = {}
 
-    def fake_extract_data(url, work_dir, logger):
+    def fake_extract_data(url, work_dir, logger, zip_name="Characteristics.zip", csv_name=None):
         return "fake.csv"
 
     def fake_load_csv(path, logger=None, required_columns=None, date_columns=None, date_format=None):
@@ -315,7 +315,7 @@ def test_run_table_empty_date_config(tmp_config_multitable, tmp_log_dir, monkeyp
     import pandas as pd
     captured = {}
 
-    def fake_extract_data(url, work_dir, logger):
+    def fake_extract_data(url, work_dir, logger, zip_name="Characteristics.zip", csv_name=None):
         return "fake.csv"
 
     def fake_load_csv(path, logger=None, required_columns=None, date_columns=None, date_format=None):
@@ -345,7 +345,7 @@ def test_run_table_v_characteristics_backwards_compat(tmp_config_multitable, tmp
     import pandas as pd
     captured = {}
 
-    def fake_extract_data(url, work_dir, logger):
+    def fake_extract_data(url, work_dir, logger, zip_name="Characteristics.zip", csv_name=None):
         return "fake.csv"
 
     def fake_load_csv(path, logger=None, required_columns=None, date_columns=None, date_format=None):

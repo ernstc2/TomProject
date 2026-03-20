@@ -140,6 +140,7 @@ def run_table(cfg, section, conn, logger):
     table_cfg = cfg[section]
     url = table_cfg["download_url"]
     csv_name = table_cfg["csv_name"]
+    zip_name = table_cfg.get("zip_name", "Characteristics.zip")
     target = table_cfg["target_table"]
     columns = parse_list(table_cfg.get("columns", ""))
     date_cols = parse_list(table_cfg.get("date_columns", ""))
@@ -147,7 +148,7 @@ def run_table(cfg, section, conn, logger):
     work_dir = cfg["paths"]["work_dir"]
 
     logger.info("Downloading %s", url)
-    csv_path = extract_data(url, work_dir, logger)
+    csv_path = extract_data(url, work_dir, logger, zip_name=zip_name, csv_name=csv_name)
 
     logger.info("Loading CSV: %s", csv_path)
     df = load_csv(
