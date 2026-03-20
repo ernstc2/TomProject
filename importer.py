@@ -1,9 +1,10 @@
 """PubLog Importer — main entry point.
 
 Loads configuration from config.ini, sets up a rotating file logger,
-and orchestrates the import process.
+and orchestrates the import process across all configured table sections.
 """
 
+import argparse
 import configparser
 import logging
 import os
@@ -67,6 +68,23 @@ def parse_list(value):
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
+def parse_args():
+    """Parse command-line arguments.
+
+    Returns:
+        argparse.Namespace with attribute:
+            table (str or None): Table section name to process, or None to run all.
+    """
+    parser = argparse.ArgumentParser(description="PubLog importer")
+    parser.add_argument(
+        "--table",
+        metavar="NAME",
+        default=None,
+        help="Run only this table section (e.g. V_MANAGEMENT). Omit to run all.",
+    )
+    return parser.parse_args()
+
+
 def setup_logger(log_dir, max_bytes=10_485_760, backup_count=5, logger_name="publog_importer"):
     """Create and configure a logger with rotating file and console handlers.
 
@@ -106,16 +124,48 @@ def setup_logger(log_dir, max_bytes=10_485_760, backup_count=5, logger_name="pub
     return logger
 
 
+def run_table(cfg, section, conn, logger):
+    """Run the full extract-transform-load pipeline for one table section.
+
+    Args:
+        cfg: A ConfigParser object containing all config sections.
+        section: The INI section name for this table (e.g. "V_MANAGEMENT").
+        conn: An open database connection.
+        logger: A configured logger instance.
+
+    Raises:
+        Any exception from extract_data, load_csv, or load_swap propagates up
+        so the caller can handle failure isolation.
+    """
+    table_cfg = cfg[section]
+    url = table_cfg["download_url"]
+    csv_name = table_cfg["csv_name"]
+    target = table_cfg["target_table"]
+    columns = parse_list(table_cfg.get("columns", ""))
+    work_dir = cfg["paths"]["work_dir"]
+
+    logger.info("Downloading %s", url)
+    csv_path = extract_data(url, work_dir, logger)
+
+    logger.info("Loading CSV: %s", csv_path)
+    df = load_csv(csv_path, logger)
+
+    rows = df.to_dict(orient="records")
+    result = load_swap(conn, target, rows, logger, columns=columns)
+    logger.info("Table %s complete: %d rows loaded", section, result["loaded"])
+
+
 def main():
     """Top-level orchestrator.
 
-    Loads config, sets up logging, reads the CSV via load_csv() (which applies
-    date conversion), connects to SQL Server, ensures the target table exists,
-    upserts all rows, and logs results.
-    Exits with code 0 on success, code 1 on any error.
+    Reads all table sections from config, optionally filters to a single table
+    via --table NAME, runs each table through run_table(), and exits with code 0
+    if all succeed or code 1 if any fail (failure-isolated: one table failing
+    does not abort the remaining tables).
     """
     conn = None
     try:
+        args = parse_args()
         cfg = load_config()
         log_dir = cfg["logging"]["log_dir"]
         max_bytes = int(cfg["logging"].get("max_bytes", 10_485_760))
@@ -124,34 +174,46 @@ def main():
         logger = setup_logger(log_dir, max_bytes=max_bytes, backup_count=backup_count)
         logger.info("PubLog Importer started")
 
-        # Connect to SQL Server
         conn = get_connection(cfg)
         server = cfg["database"]["server"]
         database = cfg["database"]["database"]
         logger.info("Connected to %s/%s", server, database)
 
-        table = cfg["database"]["table"]
+        table_sections = get_table_sections(cfg)
 
-        # Download and extract the CSV
-        url = cfg["paths"]["download_url"]
-        work_dir = cfg["paths"]["work_dir"]
-        logger.info("Downloading from %s", url)
-        csv_path = extract_data(url, work_dir, logger)
-        logger.info("CSV ready at %s", csv_path)
+        if args.table is not None:
+            if args.table not in table_sections:
+                logger.error(
+                    "Unknown table: %s. Configured tables: %s",
+                    args.table,
+                    table_sections,
+                )
+                sys.exit(1)
+            table_sections = [args.table]
 
-        # Load the CSV and convert dates
-        df = load_csv(csv_path, logger)
-        logger.info("Loaded %d rows from %s", len(df), csv_path)
+        failed_tables = []
 
-        # Convert DataFrame rows to list of dicts for upsert
-        rows = df.to_dict(orient="records")
+        for section in table_sections:
+            logger.info("=" * 60)
+            logger.info("Processing table: %s", section)
+            logger.info("=" * 60)
+            try:
+                run_table(cfg, section, conn, logger)
+            except Exception as exc:
+                logger.error("Table %s failed: %s", section, exc)
+                failed_tables.append(section)
 
-        result = load_swap(conn, table, rows, logger)
-        logger.info("Load-swap complete: %d rows loaded", result["loaded"])
+        if failed_tables:
+            logger.error(
+                "Pipeline complete with errors. Failed tables: %s", failed_tables
+            )
+            sys.exit(1)
+        else:
+            logger.info("Pipeline complete. All tables succeeded.")
+            sys.exit(0)
 
-        logger.info("Run complete.")
-        sys.exit(0)
-
+    except SystemExit:
+        raise
     except Exception as exc:  # noqa: BLE001
         print(f"ERROR: {exc}", file=sys.stderr)
         sys.exit(1)
