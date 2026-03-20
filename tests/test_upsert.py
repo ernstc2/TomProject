@@ -2,8 +2,11 @@
 
 These tests require a live SQL Server connection via config.ini.
 Run with: pytest tests/test_upsert.py -v -m integration
+
+Unit tests for dynamic load_swap columns do NOT require a live DB.
 """
 import os
+import unittest.mock
 import pytest
 
 from db import get_connection, ensure_table, upsert_batch, load_swap, swap_mrc_columns
@@ -240,3 +243,143 @@ def test_swap_mrc_columns(db_conn, clean_table, db_config):
 
     # Swap back so clean_table teardown can still find the columns
     swap_mrc_columns(conn, TABLE, logger=None)
+
+
+# ---------------------------------------------------------------------------
+# Unit tests for dynamic columns in load_swap (LDM-03)
+# ---------------------------------------------------------------------------
+
+class _FakeCursor:
+    """Mock cursor that captures executed SQL and params for inspection."""
+
+    def __init__(self):
+        self.executed = []       # list of (sql, params) tuples
+        self.fast_executemany = False
+        self._fetchone_result = None
+
+    def execute(self, sql, params=None):
+        self.executed.append((sql, params))
+
+    def executemany(self, sql, params_list):
+        self.executed.append((sql, params_list))
+
+    def fetchone(self):
+        return self._fetchone_result
+
+    def setinputsizes(self, sizes):
+        pass
+
+
+class _FakeConn:
+    """Mock connection that returns a _FakeCursor and tracks commit/rollback."""
+
+    def __init__(self, table_exists=False):
+        self._cursor = _FakeCursor()
+        self._table_exists = table_exists
+        self.committed = 0
+        self.rolled_back = 0
+
+    def cursor(self):
+        # Return same cursor so we can inspect all calls
+        return self._cursor
+
+    def commit(self):
+        self.committed += 1
+
+    def rollback(self):
+        self.rolled_back += 1
+
+
+def _get_executed_sqls(conn):
+    """Return list of SQL strings from all cursor.execute() calls."""
+    return [sql for sql, _params in conn._cursor.executed]
+
+
+def test_load_swap_dynamic_columns_creates_table():
+    """load_swap with explicit columns builds CREATE TABLE with those columns."""
+    conn = _FakeConn(table_exists=False)
+    # Patch fetchone to return None (table does not exist) for INFORMATION_SCHEMA check
+    conn._cursor._fetchone_result = None
+
+    rows = [{"COL_A": "val1", "COL_B": "val2", "COL_C": "val3"}]
+    columns = ["COL_A", "COL_B", "COL_C"]
+
+    load_swap(conn, "TEST_TABLE", rows, logger=None, columns=columns)
+
+    sqls = _get_executed_sqls(conn)
+    create_sql = next((s for s in sqls if "CREATE TABLE" in s and "_NEW" in s), None)
+    assert create_sql is not None, "No CREATE TABLE found for _NEW table"
+    assert "[COL_A]" in create_sql
+    assert "[COL_B]" in create_sql
+    assert "[COL_C]" in create_sql
+    # Must NOT contain hardcoded V_CHARACTERISTICS columns
+    assert "NIIN" not in create_sql
+    assert "MRC" not in create_sql
+    assert "REQUIREMENTS_STATEMENT" not in create_sql
+
+
+def test_load_swap_dynamic_columns_inserts_correct_values():
+    """load_swap with columns extracts row values in column order for INSERT."""
+    conn = _FakeConn(table_exists=False)
+    conn._cursor._fetchone_result = None
+
+    rows = [{"COL_A": "val1", "COL_B": "val2"}]
+    columns = ["COL_A", "COL_B"]
+
+    load_swap(conn, "TEST_TABLE", rows, logger=None, columns=columns)
+
+    # Find the executemany call
+    executemany_calls = [
+        (sql, params) for sql, params in conn._cursor.executed
+        if isinstance(params, list)
+    ]
+    assert len(executemany_calls) >= 1, "No executemany call found"
+    insert_sql, params_list = executemany_calls[0]
+    assert "INSERT INTO" in insert_sql
+    assert "[COL_A]" in insert_sql
+    assert "[COL_B]" in insert_sql
+    # Params should be a list of tuples with values in column order
+    assert params_list == [("val1", "val2")]
+
+
+def test_load_swap_columns_none_infers_from_rows():
+    """load_swap with columns=None infers column names from first row keys."""
+    conn = _FakeConn(table_exists=False)
+    conn._cursor._fetchone_result = None
+
+    rows = [{"ALPHA": "a", "BETA": "b"}]
+
+    # columns=None — should infer from rows[0].keys()
+    load_swap(conn, "TEST_TABLE", rows, logger=None, columns=None)
+
+    sqls = _get_executed_sqls(conn)
+    create_sql = next((s for s in sqls if "CREATE TABLE" in s and "_NEW" in s), None)
+    assert create_sql is not None
+    assert "[ALPHA]" in create_sql
+    assert "[BETA]" in create_sql
+
+
+def test_load_swap_backwards_compatible():
+    """load_swap called without columns param still works with V_CHARACTERISTICS rows."""
+    conn = _FakeConn(table_exists=False)
+    conn._cursor._fetchone_result = None
+
+    rows = [
+        {
+            "NIIN": "001",
+            "MRC": "A",
+            "REQUIREMENTS_STATEMENT": "Req",
+            "CLEAR_TEXT_REPLY": "Reply",
+        }
+    ]
+
+    # Call without columns keyword (old call pattern)
+    result = load_swap(conn, "V_CHARACTERISTICS_TESTING", rows, logger=None)
+
+    assert result == {"loaded": 1}
+    sqls = _get_executed_sqls(conn)
+    create_sql = next((s for s in sqls if "CREATE TABLE" in s and "_NEW" in s), None)
+    assert create_sql is not None
+    # Should have all 4 columns inferred from row keys
+    assert "[NIIN]" in create_sql
+    assert "[MRC]" in create_sql

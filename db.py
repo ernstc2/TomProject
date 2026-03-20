@@ -368,7 +368,7 @@ def upsert_bulk(conn, table, rows, logger=None):
         raise
 
 
-def load_swap(conn, table, rows, logger=None):
+def load_swap(conn, table, rows, logger=None, columns=None):
     """Full table replacement via bulk load + rename, preserving prior data.
 
     Strategy:
@@ -382,10 +382,12 @@ def load_swap(conn, table, rows, logger=None):
     milliseconds instead of the entire load duration.
 
     Args:
-        conn:   An open database connection with autocommit=False.
-        table:  Target table name (e.g. "V_CHARACTERISTICS").
-        rows:   List of dicts with keys NIIN, MRC, REQUIREMENTS_STATEMENT, CLEAR_TEXT_REPLY.
-        logger: Optional logger; falls back to module-level logger if None.
+        conn:    An open database connection with autocommit=False.
+        table:   Target table name (e.g. "V_CHARACTERISTICS").
+        rows:    List of dicts. Keys must include all names in columns.
+        logger:  Optional logger; falls back to module-level logger if None.
+        columns: Ordered list of column names to include. If None, inferred
+                 from the first row's dict keys. Drives CREATE TABLE and INSERT.
 
     Returns:
         dict: {"loaded": N}
@@ -394,6 +396,11 @@ def load_swap(conn, table, rows, logger=None):
         Exception: Any database error, after cleaning up temp tables.
     """
     log = logger if logger is not None else _logger
+
+    # Resolve columns: use provided list or infer from first row
+    if columns is None:
+        columns = list(rows[0].keys()) if rows else []
+
     new_table = f"{table}_NEW"
     prior_table = f"{table}_PRIOR"
     cursor = conn.cursor()
@@ -403,14 +410,12 @@ def load_swap(conn, table, rows, logger=None):
         cursor.execute(f"DROP TABLE IF EXISTS {new_table}")
         conn.commit()
 
-        # 1. Create the new table
+        # 1. Create the new table with dynamic columns (all varchar(max) NULL)
+        col_defs = ",\n                ".join(f"[{col}] varchar(max) NULL" for col in columns)
         cursor.execute(
             f"""
             CREATE TABLE {new_table} (
-                NIIN                    varchar(50)   NOT NULL,
-                MRC                     varchar(max)  NOT NULL,
-                REQUIREMENTS_STATEMENT  varchar(max)  NULL,
-                CLEAR_TEXT_REPLY        varchar(max)  NULL
+                {col_defs}
             )
             """
         )
@@ -420,26 +425,16 @@ def load_swap(conn, table, rows, logger=None):
         # 2. Bulk-load all rows into the new table
         cursor.fast_executemany = True
         import pyodbc as _pyodbc
-        cursor.setinputsizes(
-            [(_pyodbc.SQL_VARCHAR, 50, 0),
-             (_pyodbc.SQL_VARCHAR, 0, 0),
-             (_pyodbc.SQL_VARCHAR, 0, 0),
-             (_pyodbc.SQL_VARCHAR, 0, 0)]
-        )
+        cursor.setinputsizes([(_pyodbc.SQL_VARCHAR, 0, 0)] * len(columns))
 
-        insert_sql = (
-            f"INSERT INTO {new_table} "
-            f"(NIIN, MRC, REQUIREMENTS_STATEMENT, CLEAR_TEXT_REPLY) "
-            f"VALUES (?, ?, ?, ?)"
-        )
+        col_list = ", ".join(f"[{col}]" for col in columns)
+        placeholders = ", ".join("?" * len(columns))
+        insert_sql = f"INSERT INTO {new_table} ({col_list}) VALUES ({placeholders})"
 
         total = len(rows)
         for i in range(0, total, _BULK_CHUNK):
             chunk = rows[i : i + _BULK_CHUNK]
-            params = [
-                (r["NIIN"], r["MRC"], r["REQUIREMENTS_STATEMENT"], r["CLEAR_TEXT_REPLY"])
-                for r in chunk
-            ]
+            params = [tuple(r[col] for col in columns) for r in chunk]
             cursor.executemany(insert_sql, params)
             if (i // _BULK_CHUNK) % 100 == 0:
                 loaded = min(i + _BULK_CHUNK, total)
@@ -449,8 +444,10 @@ def load_swap(conn, table, rows, logger=None):
         conn.commit()
         log.info("Bulk load complete: %d rows in %s (100.0%%)", total, new_table)
 
-        # 3. Add index on NIIN before swapping
-        cursor.execute(f"CREATE INDEX IX_{new_table}_NIIN ON {new_table} (NIIN)")
+        # 3. Add index on the first column before swapping
+        idx_col = columns[0] if columns else None
+        if idx_col:
+            cursor.execute(f"CREATE INDEX IX_{new_table}_{idx_col} ON {new_table} ([{idx_col}])")
         conn.commit()
 
         # 4. Swap tables
