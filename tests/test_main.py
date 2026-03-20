@@ -271,3 +271,102 @@ def test_main_calls_run_table_for_each_section(tmp_config_multitable, tmp_log_di
 
     assert exc_info.value.code == 0
     assert len(run_table_calls) == 4
+
+
+# ---------------------------------------------------------------------------
+# run_table config wiring tests (07-02)
+# ---------------------------------------------------------------------------
+
+def test_run_table_passes_config_to_load_csv(tmp_config_multitable, tmp_log_dir, monkeypatch):
+    """run_table passes config-driven columns, date_columns, date_format to load_csv."""
+    import pandas as pd
+    captured = {}
+
+    def fake_extract_data(url, work_dir, logger):
+        return "fake.csv"
+
+    def fake_load_csv(path, logger=None, required_columns=None, date_columns=None, date_format=None):
+        captured["required_columns"] = required_columns
+        captured["date_columns"] = date_columns
+        captured["date_format"] = date_format
+        return pd.DataFrame({"NIIN": ["001"], "MOE_RULE": ["R1"], "DT_ASGND": ["2002-02-20"], "SOS": ["S1"]})
+
+    def fake_load_swap(conn, target, rows, logger, columns=None):
+        return {"loaded": 1}
+
+    monkeypatch.setattr(importer, "extract_data", fake_extract_data)
+    monkeypatch.setattr(importer, "load_csv", fake_load_csv)
+    monkeypatch.setattr(importer, "load_swap", fake_load_swap)
+
+    cfg = importer.load_config(str(tmp_config_multitable))
+    cfg["logging"]["log_dir"] = str(tmp_log_dir)
+    logger = importer.setup_logger(str(tmp_log_dir))
+    conn = _MockConn()
+
+    importer.run_table(cfg, "V_MOE_RULE", conn, logger)
+
+    assert captured["required_columns"] == ["NIIN", "MOE_RULE", "DT_ASGND", "SOS"]
+    assert captured["date_columns"] == ["DT_ASGND"]
+    assert captured["date_format"] == "dd-MMM-yy"
+
+
+def test_run_table_empty_date_config(tmp_config_multitable, tmp_log_dir, monkeypatch):
+    """run_table passes None for date_columns/date_format when config values are empty."""
+    import pandas as pd
+    captured = {}
+
+    def fake_extract_data(url, work_dir, logger):
+        return "fake.csv"
+
+    def fake_load_csv(path, logger=None, required_columns=None, date_columns=None, date_format=None):
+        captured["date_columns"] = date_columns
+        captured["date_format"] = date_format
+        return pd.DataFrame({"CAGE_CODE": ["C1"], "STATUS": ["A"], "TYPE": ["T"], "ASSOC_NAME": ["N"], "ASSOC_CAGE": ["AC"]})
+
+    def fake_load_swap(conn, target, rows, logger, columns=None):
+        return {"loaded": 1}
+
+    monkeypatch.setattr(importer, "extract_data", fake_extract_data)
+    monkeypatch.setattr(importer, "load_csv", fake_load_csv)
+    monkeypatch.setattr(importer, "load_swap", fake_load_swap)
+
+    cfg = importer.load_config(str(tmp_config_multitable))
+    cfg["logging"]["log_dir"] = str(tmp_log_dir)
+    logger = importer.setup_logger(str(tmp_log_dir))
+
+    importer.run_table(cfg, "V_CAGE_STATUS_AND_TYPE", _MockConn(), logger)
+
+    assert captured["date_columns"] is None
+    assert captured["date_format"] is None
+
+
+def test_run_table_v_characteristics_backwards_compat(tmp_config_multitable, tmp_log_dir, monkeypatch):
+    """run_table passes V_CHARACTERISTICS config to load_csv correctly."""
+    import pandas as pd
+    captured = {}
+
+    def fake_extract_data(url, work_dir, logger):
+        return "fake.csv"
+
+    def fake_load_csv(path, logger=None, required_columns=None, date_columns=None, date_format=None):
+        captured["required_columns"] = required_columns
+        captured["date_columns"] = date_columns
+        captured["date_format"] = date_format
+        return pd.DataFrame({"NIIN": ["001"], "MRC": ["A"], "REQUIREMENTS_STATEMENT": ["R"], "CLEAR_TEXT_REPLY": ["C"]})
+
+    def fake_load_swap(conn, target, rows, logger, columns=None):
+        return {"loaded": 1}
+
+    monkeypatch.setattr(importer, "extract_data", fake_extract_data)
+    monkeypatch.setattr(importer, "load_csv", fake_load_csv)
+    monkeypatch.setattr(importer, "load_swap", fake_load_swap)
+
+    cfg = importer.load_config(str(tmp_config_multitable))
+    cfg["logging"]["log_dir"] = str(tmp_log_dir)
+    logger = importer.setup_logger(str(tmp_log_dir))
+
+    importer.run_table(cfg, "V_CHARACTERISTICS", _MockConn(), logger)
+
+    assert captured["required_columns"] == ["NIIN", "MRC", "REQUIREMENTS_STATEMENT", "CLEAR_TEXT_REPLY"]
+    assert captured["date_columns"] == ["CLEAR_TEXT_REPLY"]
+    assert captured["date_format"] == "dd-MMM-yy"
