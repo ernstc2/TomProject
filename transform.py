@@ -23,6 +23,12 @@ _DATE_PAT = re.compile(
     re.IGNORECASE,
 )
 
+# Regex for dd-MMM-yyyy date patterns (4-digit year, no century pivot).
+_DATE_PAT_4Y = re.compile(
+    r"\b(\d{1,2})-(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)-(\d{4})\b",
+    re.IGNORECASE,
+)
+
 # Dynamic pivot: two-digit years above this threshold belong to the previous century.
 _PIVOT = date.today().year % 100
 
@@ -53,6 +59,21 @@ def _convert_date_match(m):
     return f"{year}-{month}-{day}"
 
 
+def _convert_date_match_4y(m):
+    """Convert a regex match of dd-MMM-yyyy to YYYY-MM-DD (no century pivot).
+
+    Args:
+        m: A re.Match object with groups (day, month_abbr, year_4digit).
+
+    Returns:
+        ISO-format date string 'YYYY-MM-DD'.
+    """
+    day = m.group(1).zfill(2)
+    month = _MONTH_MAP[m.group(2).upper()]
+    year = m.group(3)
+    return f"{year}-{month}-{day}"
+
+
 def _convert_dates(df):
     """Replace dd-MMM-yy patterns in the CLEAR_TEXT_REPLY column with YYYY-MM-DD.
 
@@ -69,6 +90,34 @@ def _convert_dates(df):
     df["CLEAR_TEXT_REPLY"] = df["CLEAR_TEXT_REPLY"].str.replace(
         _DATE_PAT, _convert_date_match, regex=True
     )
+    return df
+
+
+def _apply_date_conversion(df, date_columns, date_format):
+    """Apply date format conversion to specified columns.
+
+    Dispatches to the appropriate converter based on date_format:
+    - "dd-MMM-yy"   -> 2-digit year with century pivot
+    - "dd-MMM-yyyy" -> 4-digit year without pivot
+
+    Args:
+        df: pandas DataFrame to transform.
+        date_columns: List of column names to apply conversion to.
+        date_format: Format string "dd-MMM-yy" or "dd-MMM-yyyy".
+
+    Returns:
+        A new DataFrame with converted date columns.
+    """
+    df = df.copy()
+    if date_format == "dd-MMM-yy":
+        pat, converter = _DATE_PAT, _convert_date_match
+    elif date_format == "dd-MMM-yyyy":
+        pat, converter = _DATE_PAT_4Y, _convert_date_match_4y
+    else:
+        return df
+    for col in date_columns:
+        if col in df.columns:
+            df[col] = df[col].str.replace(pat, converter, regex=True)
     return df
 
 
@@ -95,7 +144,7 @@ def _detect_delimiter(path, sample_bytes=8192):
         return ","
 
 
-def _validate_columns(df, logger=None):
+def _validate_columns(df, required=None, logger=None):
     """Raise SystemExit(1) if any required columns are absent from *df*.
 
     All missing column names are logged at ERROR level before exiting so the
@@ -103,20 +152,23 @@ def _validate_columns(df, logger=None):
 
     Args:
         df: pandas DataFrame whose columns are to be checked.
+        required: Optional list of required column names.  Falls back to the
+            REQUIRED_COLUMNS constant when None (backwards compatibility).
         logger: Optional stdlib logger.  Falls back to the module logger.
 
     Raises:
         SystemExit(1): When one or more required columns are missing.
     """
     log = logger if logger is not None else _log
-    missing = REQUIRED_COLUMNS - set(df.columns)
+    req = REQUIRED_COLUMNS if required is None else set(required)
+    missing = req - set(df.columns)
     if missing:
         for col in sorted(missing):
             log.error("Required column missing from CSV: %s", col)
         raise SystemExit(1)
 
 
-def load_csv(path, logger=None):
+def load_csv(path, logger=None, required_columns=None, date_columns=None, date_format=None):
     """Load a DLA characteristics CSV file and return a validated DataFrame.
 
     All columns are read as strings (dtype=str) so that NIIN leading zeros
@@ -125,10 +177,21 @@ def load_csv(path, logger=None):
     Args:
         path: Path-like object or str pointing to the CSV file.
         logger: Optional stdlib logger for info/error messages.
+        required_columns: Optional list of required column names.  When None,
+            falls back to the REQUIRED_COLUMNS constant (backwards compat).
+            When provided, output is also subset to exactly these columns in
+            this order.
+        date_columns: Optional list of column names to apply date conversion
+            to.  When None or empty, no date conversion is performed (unless
+            required_columns is also None, which uses the legacy _convert_dates
+            path).
+        date_format: Format string controlling which converter to use:
+            "dd-MMM-yy"   -> 2-digit year with century pivot
+            "dd-MMM-yyyy" -> 4-digit year without pivot
 
     Returns:
-        A pandas DataFrame with at least the four required columns, all values
-        as strings.
+        A pandas DataFrame with validated and optionally subset columns, all
+        values as strings.
 
     Raises:
         FileNotFoundError: If *path* does not exist.
@@ -151,9 +214,18 @@ def load_csv(path, logger=None):
         keep_default_na=False,
     )
 
-    _validate_columns(df, logger=log)
+    _validate_columns(df, required=required_columns, logger=log)
 
-    df = _convert_dates(df)
+    # Date conversion: legacy path when no required_columns (backwards compat),
+    # or config-driven path when required_columns is provided.
+    if required_columns is None:
+        df = _convert_dates(df)
+    elif date_columns and date_format:
+        df = _apply_date_conversion(df, date_columns, date_format)
+
+    # Subset output to only the required columns (in specified order).
+    if required_columns:
+        df = df[required_columns]
 
     log.info("Loaded %d rows from %s", len(df), path)
     return df
