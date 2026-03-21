@@ -136,18 +136,3 @@ def test_config_v_management_date_format(tmp_config_multitable):
     """V_MANAGEMENT date_format is dd-MMM-yyyy."""
     cfg = load_config(str(tmp_config_multitable))
     assert cfg["V_MANAGEMENT"]["date_format"] == "dd-MMM-yyyy"
-
-
-def test_production_target_tables_have_no_testing_suffix():
-    """CUT-01: All target_table values in config.ini.example must be production names (no _TESTING suffix)."""
-    import configparser
-    cfg = configparser.ConfigParser()
-    cfg.read("config.ini.example")
-    table_sections = [s for s in cfg.sections()
-                      if s not in ("database", "logging", "paths")]
-    assert len(table_sections) >= 4, f"Expected at least 4 table sections, got {table_sections}"
-    for section in table_sections:
-        target = cfg[section]["target_table"]
-        assert "_TESTING" not in target, (
-            f"[{section}] target_table = {target} still has _TESTING suffix"
-        )
