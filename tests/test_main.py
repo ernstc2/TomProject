@@ -285,11 +285,11 @@ def test_run_table_passes_config_to_load_csv(tmp_config_multitable, tmp_log_dir,
     def fake_extract_data(url, work_dir, logger, zip_name="Characteristics.zip", csv_name=None):
         return "fake.csv"
 
-    def fake_load_csv(path, logger=None, required_columns=None, date_columns=None, date_format=None):
+    def fake_load_csv(path, logger=None, required_columns=None, date_columns=None, date_format=None, numeric_columns=None):
         captured["required_columns"] = required_columns
         captured["date_columns"] = date_columns
         captured["date_format"] = date_format
-        return pd.DataFrame({"NIIN": ["001"], "MOE_RULE": ["R1"], "DT_ASGND": ["2002-02-20"], "SOS": ["S1"]})
+        return pd.DataFrame({"NIIN": ["001"], "IMC": ["X"], "DT_ASGND": ["2002-02-20"], "MOE_RL": ["R1"]})
 
     def fake_load_swap(conn, target, rows, logger, columns=None):
         return {"loaded": 1}
@@ -305,7 +305,7 @@ def test_run_table_passes_config_to_load_csv(tmp_config_multitable, tmp_log_dir,
 
     importer.run_table(cfg, "V_MOE_RULE", conn, logger)
 
-    assert captured["required_columns"] == ["NIIN", "MOE_RULE", "DT_ASGND", "SOS"]
+    assert captured["required_columns"] == ["NIIN", "IMC", "AMC", "PICA_LOA", "SICA_LOA", "AAC", "AMSC", "NIMSC", "IMCA", "SUBMTR", "SICA", "MOE_CD", "PICA", "DSOR", "DT_ASGND", "AUTH_COLLAB", "AUTH_RCVR", "SUPP_RCVR", "FMR_MOE_RL", "MOE_RL", "SUPP_COLLAB"]
     assert captured["date_columns"] == ["DT_ASGND"]
     assert captured["date_format"] == "dd-MMM-yy"
 
@@ -318,10 +318,10 @@ def test_run_table_empty_date_config(tmp_config_multitable, tmp_log_dir, monkeyp
     def fake_extract_data(url, work_dir, logger, zip_name="Characteristics.zip", csv_name=None):
         return "fake.csv"
 
-    def fake_load_csv(path, logger=None, required_columns=None, date_columns=None, date_format=None):
+    def fake_load_csv(path, logger=None, required_columns=None, date_columns=None, date_format=None, numeric_columns=None):
         captured["date_columns"] = date_columns
         captured["date_format"] = date_format
-        return pd.DataFrame({"CAGE_CODE": ["C1"], "STATUS": ["A"], "TYPE": ["T"], "ASSOC_NAME": ["N"], "ASSOC_CAGE": ["AC"]})
+        return pd.DataFrame({"CAGE_CODE": ["C1"], "STATUS": ["A"], "TYPE": ["T"], "ASSOC_CODE": ["AC"], "DESIGNATOR": ["X"]})
 
     def fake_load_swap(conn, target, rows, logger, columns=None):
         return {"loaded": 1}
@@ -348,7 +348,7 @@ def test_run_table_v_characteristics_backwards_compat(tmp_config_multitable, tmp
     def fake_extract_data(url, work_dir, logger, zip_name="Characteristics.zip", csv_name=None):
         return "fake.csv"
 
-    def fake_load_csv(path, logger=None, required_columns=None, date_columns=None, date_format=None):
+    def fake_load_csv(path, logger=None, required_columns=None, date_columns=None, date_format=None, numeric_columns=None):
         captured["required_columns"] = required_columns
         captured["date_columns"] = date_columns
         captured["date_format"] = date_format
@@ -386,8 +386,8 @@ def test_run_table_passes_zip_name_to_extract_data(tmp_config_multitable, tmp_lo
         captured["csv_name"] = csv_name
         return "fake.csv"
 
-    def fake_load_csv(path, logger=None, required_columns=None, date_columns=None, date_format=None):
-        return pd.DataFrame({"NIIN": ["001"], "MOE_RULE": ["R1"], "DT_ASGND": ["2002-02-20"], "SOS": ["S1"]})
+    def fake_load_csv(path, logger=None, required_columns=None, date_columns=None, date_format=None, numeric_columns=None):
+        return pd.DataFrame({"NIIN": ["001"], "IMC": ["X"], "DT_ASGND": ["2002-02-20"], "MOE_RL": ["R1"]})
 
     def fake_load_swap(conn, target, rows, logger, columns=None):
         return {"loaded": 1}
@@ -416,8 +416,8 @@ def test_run_table_passes_zip_name_cage(tmp_config_multitable, tmp_log_dir, monk
         captured["csv_name"] = csv_name
         return "fake.csv"
 
-    def fake_load_csv(path, logger=None, required_columns=None, date_columns=None, date_format=None):
-        return pd.DataFrame({"CAGE_CODE": ["C1"], "STATUS": ["A"], "TYPE": ["T"], "ASSOC_NAME": ["N"], "ASSOC_CAGE": ["AC"]})
+    def fake_load_csv(path, logger=None, required_columns=None, date_columns=None, date_format=None, numeric_columns=None):
+        return pd.DataFrame({"CAGE_CODE": ["C1"], "STATUS": ["A"], "TYPE": ["T"], "ASSOC_CODE": ["AC"], "DESIGNATOR": ["X"]})
 
     def fake_load_swap(conn, target, rows, logger, columns=None):
         return {"loaded": 1}
@@ -446,8 +446,8 @@ def test_run_table_passes_zip_name_management(tmp_config_multitable, tmp_log_dir
         captured["csv_name"] = csv_name
         return "fake.csv"
 
-    def fake_load_csv(path, logger=None, required_columns=None, date_columns=None, date_format=None):
-        return pd.DataFrame({"NIIN": ["001"], "EFFECTIVE_DATE": ["2002-02-20"], "DEMIL_CODE": ["D"]})
+    def fake_load_csv(path, logger=None, required_columns=None, date_columns=None, date_format=None, numeric_columns=None):
+        return pd.DataFrame({"NIIN": ["001"], "EFFECTIVE_DATE": ["2002-02-20"], "MGMT_CTL": ["D"]})
 
     def fake_load_swap(conn, target, rows, logger, columns=None):
         return {"loaded": 1}

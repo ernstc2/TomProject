@@ -444,11 +444,11 @@ def load_swap(conn, table, rows, logger=None, columns=None):
         conn.commit()
         log.info("Bulk load complete: %d rows in %s (100.0%%)", total, new_table)
 
-        # 3. Add index on the first column before swapping
-        idx_col = columns[0] if columns else None
-        if idx_col:
-            cursor.execute(f"CREATE INDEX IX_{new_table}_{idx_col} ON {new_table} ([{idx_col}])")
+        # 3. Convert empty strings to NULL
+        for col in columns:
+            cursor.execute(f"UPDATE {new_table} SET [{col}] = NULL WHERE [{col}] = ''")
         conn.commit()
+        log.info("Converted empty strings to NULL in %s", new_table)
 
         # 4. Swap tables
         cursor.execute(

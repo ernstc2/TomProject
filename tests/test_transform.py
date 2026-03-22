@@ -421,13 +421,13 @@ class TestCageNoDateConversion:
     def test_no_date_columns_no_conversion(self, tmp_path):
         """date_columns=[] performs no conversion; PARENT_CAGE is absent from output."""
         content = (
-            "CAGE_CODE,STATUS,TYPE,ASSOC_NAME,ASSOC_CAGE,PARENT_CAGE\n"
-            "12345,20-FEB-02,T,Name,11111,99999\n"
+            "CAGE_CODE,STATUS,TYPE,ASSOC_CODE,DESIGNATOR,PARENT_CAGE\n"
+            "12345,20-FEB-02,T,11111,X,99999\n"
         )
         path = _make_csv(tmp_path, content)
         df = load_csv(
             path,
-            required_columns=["CAGE_CODE", "STATUS", "TYPE", "ASSOC_NAME", "ASSOC_CAGE"],
+            required_columns=["CAGE_CODE", "STATUS", "TYPE", "ASSOC_CODE", "DESIGNATOR"],
             date_columns=[],
             date_format="",
         )

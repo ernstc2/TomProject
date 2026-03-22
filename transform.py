@@ -168,7 +168,21 @@ def _validate_columns(df, required=None, logger=None):
         raise SystemExit(1)
 
 
-def load_csv(path, logger=None, required_columns=None, date_columns=None, date_format=None):
+def _normalize_numeric(value):
+    """Strip leading zeros from a numeric string, preserving decimals.
+
+    '000003228.01' -> '3228.01', '000000046.20' -> '46.20', '0' -> '0'.
+    Non-numeric or empty values are returned unchanged.
+    """
+    if not value or not value.strip():
+        return value
+    stripped = value.lstrip("0") or "0"
+    if stripped.startswith("."):
+        stripped = "0" + stripped
+    return stripped
+
+
+def load_csv(path, logger=None, required_columns=None, date_columns=None, date_format=None, numeric_columns=None):
     """Load a DLA characteristics CSV file and return a validated DataFrame.
 
     All columns are read as strings (dtype=str) so that NIIN leading zeros
@@ -188,6 +202,8 @@ def load_csv(path, logger=None, required_columns=None, date_columns=None, date_f
         date_format: Format string controlling which converter to use:
             "dd-MMM-yy"   -> 2-digit year with century pivot
             "dd-MMM-yyyy" -> 4-digit year without pivot
+        numeric_columns: Optional list of column names to strip leading zeros
+            from (e.g. UNIT_PRICE '000003228.01' -> '3228.01').
 
     Returns:
         A pandas DataFrame with validated and optionally subset columns, all
@@ -222,6 +238,13 @@ def load_csv(path, logger=None, required_columns=None, date_columns=None, date_f
         df = _convert_dates(df)
     elif date_columns and date_format:
         df = _apply_date_conversion(df, date_columns, date_format)
+
+    # Strip leading zeros from numeric columns (e.g. UNIT_PRICE).
+    if numeric_columns:
+        df = df.copy()
+        for col in numeric_columns:
+            if col in df.columns:
+                df[col] = df[col].map(_normalize_numeric)
 
     # Subset output to only the required columns (in specified order).
     if required_columns:

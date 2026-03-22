@@ -145,6 +145,7 @@ def run_table(cfg, section, conn, logger):
     columns = parse_list(table_cfg.get("columns", ""))
     date_cols = parse_list(table_cfg.get("date_columns", ""))
     date_fmt = table_cfg.get("date_format", "").strip()
+    numeric_cols = parse_list(table_cfg.get("numeric_columns", ""))
     work_dir = cfg["paths"]["work_dir"]
 
     logger.info("Downloading %s", url)
@@ -157,6 +158,7 @@ def run_table(cfg, section, conn, logger):
         required_columns=columns or None,
         date_columns=date_cols or None,
         date_format=date_fmt or None,
+        numeric_columns=numeric_cols or None,
     )
 
     rows = df.to_dict(orient="records")

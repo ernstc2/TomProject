@@ -57,7 +57,7 @@ def test_main_calls_extract_then_load_then_upsert(tmp_config, tmp_log_dir, monke
     )
     monkeypatch.setattr(
         importer, "load_csv",
-        lambda path, logger=None: call_order.append("load") or _SAMPLE_DF,
+        lambda path, logger=None, **kw: call_order.append("load") or _SAMPLE_DF,
     )
     monkeypatch.setattr(importer, "get_connection", lambda cfg: _MockConn())
     monkeypatch.setattr(importer, "ensure_table", lambda conn, table: None)
@@ -90,7 +90,7 @@ def test_extract_receives_url_and_work_dir(tmp_config, tmp_log_dir, monkeypatch)
         return "/mock/extracted.csv"
 
     monkeypatch.setattr(importer, "extract_data", capturing_extract)
-    monkeypatch.setattr(importer, "load_csv", lambda path, logger=None: _SAMPLE_DF)
+    monkeypatch.setattr(importer, "load_csv", lambda path, logger=None, **kw: _SAMPLE_DF)
     monkeypatch.setattr(importer, "get_connection", lambda cfg: _MockConn())
     monkeypatch.setattr(importer, "ensure_table", lambda conn, table: None)
     monkeypatch.setattr(
@@ -122,7 +122,7 @@ def test_extract_csv_path_used_by_load_csv(tmp_config, tmp_log_dir, monkeypatch)
         lambda url, work_dir, logger=None: "/mock/extracted.csv",
     )
 
-    def capturing_load_csv(path, logger=None):
+    def capturing_load_csv(path, logger=None, **kw):
         load_csv_calls.append(path)
         return _SAMPLE_DF
 
@@ -157,7 +157,7 @@ def test_second_run_zero_changes(tmp_config, tmp_log_dir, monkeypatch):
         importer, "extract_data",
         lambda url, work_dir, logger=None: "/mock/extracted.csv",
     )
-    monkeypatch.setattr(importer, "load_csv", lambda path, logger=None: _SAMPLE_DF)
+    monkeypatch.setattr(importer, "load_csv", lambda path, logger=None, **kw: _SAMPLE_DF)
     monkeypatch.setattr(importer, "get_connection", lambda cfg: _MockConn())
     monkeypatch.setattr(importer, "ensure_table", lambda conn, table: None)
 

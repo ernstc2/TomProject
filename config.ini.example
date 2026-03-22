@@ -3,8 +3,6 @@ server = YOUR_SERVER_NAME
 database = DN_Live
 username = your_sql_login
 password = your_password
-; DEPRECATED: table key will be removed in a future phase.
-; Each table section now has its own target_table key.
 table = V_CHARACTERISTICS
 encrypt = yes
 trust_server_certificate = yes
@@ -15,8 +13,6 @@ max_bytes = 10485760
 backup_count = 5
 
 [paths]
-; DEPRECATED: download_url in [paths] will be removed in a future phase.
-; Each table section now has its own download_url key.
 download_url = https://www.dla.mil/Information-Operations/FLIS-Data-Electronic-Reading-Room/
 work_dir = work
 
@@ -36,7 +32,7 @@ download_url  = https://www.dla.mil/Information-Operations/FLIS-Data-Electronic-
 zip_name      = CAGE.zip
 csv_name      = V_CAGE_STATUS_AND_TYPE.CSV
 target_table  = V_CAGE_STATUS_AND_TYPE_TESTING
-columns       = CAGE_CODE,STATUS,TYPE,ASSOC_NAME,ASSOC_CAGE
+columns       = CAGE_CODE,DESIGNATOR,AFFIL_CODE,ADP,TYPE_OF_BUSINESS,WOMAN_OWNED,BUS_SIZE,PRIMARY_BUSINESS,TYPE,STATUS,CNGRSL_DSTRCT,CAO,ASSOC_CODE,RPLM_CODE,FAX,PHONE
 key_columns   = CAGE_CODE
 date_columns  =
 date_format   =
@@ -47,7 +43,7 @@ download_url  = https://www.dla.mil/Information-Operations/FLIS-Data-Electronic-
 zip_name      = MANAGEMENT.zip
 csv_name      = V_FLIS_MANAGEMENT.CSV
 target_table  = V_MANAGEMENT_TESTING
-columns       = NIIN,EFFECTIVE_DATE,DEMIL_CODE,DEMIL_INT_CODE,ITEM_NAME,INC
+columns       = NIIN,REP_REC_CODE,REP_NET_PR,MOE,USC,SOSM,AAC,QUP,CIIC,SLC,UI_CONV_FAC,UI,SOS,EFFECTIVE_DATE,MGMT_CTL,UNIT_PRICE
 key_columns   = NIIN
 date_columns  = EFFECTIVE_DATE
 date_format   = dd-MMM-yyyy
@@ -58,7 +54,7 @@ download_url  = https://www.dla.mil/Information-Operations/FLIS-Data-Electronic-
 zip_name      = MOE_RULE.zip
 csv_name      = V_MOE_RULE.CSV
 target_table  = V_MOE_RULE_TESTING
-columns       = NIIN,MOE_RULE,DT_ASGND,SOS
+columns       = NIIN,IMC,AMC,PICA_LOA,SICA_LOA,AAC,AMSC,NIMSC,IMCA,SUBMTR,SICA,MOE_CD,PICA,DSOR,DT_ASGND,AUTH_COLLAB,AUTH_RCVR,SUPP_RCVR,FMR_MOE_RL,MOE_RL,SUPP_COLLAB
 key_columns   = NIIN
 date_columns  = DT_ASGND
 date_format   = dd-MMM-yy
