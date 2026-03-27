@@ -10,7 +10,8 @@ __pycache__/
 *.pyc
 *.pyo
 
-# Test cache
+# Tests (local only)
+tests/
 .pytest_cache/
 
 # Distribution / packaging

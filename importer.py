@@ -205,6 +205,7 @@ def main():
     does not abort the remaining tables).
     """
     conn = None
+    logger = None
     try:
         args = parse_args()
         cfg = load_config()
@@ -222,6 +223,7 @@ def main():
         logger.info("Connected to %s/%s", server, database)
 
         table_sections = get_table_sections(cfg)
+        logger.info("Found %d table(s): %s", len(table_sections), table_sections)
 
         if args.table is not None:
             if args.table not in table_sections:
@@ -273,6 +275,8 @@ def main():
     except SystemExit:
         raise
     except Exception as exc:  # noqa: BLE001
+        if logger:
+            logger.error("Fatal error: %s", exc, exc_info=True)
         print(f"ERROR: {exc}", file=sys.stderr)
         sys.exit(1)
 
