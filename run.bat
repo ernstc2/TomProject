@@ -13,4 +13,9 @@ REM DO NOT remove the "exit /b" line -- it propagates Python's exit code to Task
 
 cd /d "%~dp0"
 "C:\Python313\python.exe" "%~dp0importer.py"
+
+if %ERRORLEVEL% NEQ 0 (
+    pause
+)
+
 exit /b %ERRORLEVEL%

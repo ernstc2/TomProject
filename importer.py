@@ -85,6 +85,34 @@ def parse_args():
     return parser.parse_args()
 
 
+class IssueCollector(logging.Handler):
+    """A logging handler that captures WARNING and ERROR messages for end-of-run summary."""
+
+    def __init__(self):
+        super().__init__(level=logging.WARNING)
+        self.warnings = []
+        self.errors = []
+
+    def emit(self, record):
+        msg = self.format(record) if self.formatter else record.getMessage()
+        if record.levelno >= logging.ERROR:
+            self.errors.append(msg)
+        else:
+            self.warnings.append(msg)
+
+    def reset(self):
+        self.warnings.clear()
+        self.errors.clear()
+
+    @property
+    def has_issues(self):
+        return bool(self.warnings or self.errors)
+
+
+# Module-level so main() can inspect issues after the pipeline runs.
+issue_collector = IssueCollector()
+
+
 def setup_logger(log_dir, max_bytes=10_485_760, backup_count=5, logger_name="publog_importer"):
     """Create and configure a logger with rotating file and console handlers.
 
@@ -120,6 +148,7 @@ def setup_logger(log_dir, max_bytes=10_485_760, backup_count=5, logger_name="pub
     logger.setLevel(logging.INFO)
     logger.addHandler(file_handler)
     logger.addHandler(console_handler)
+    logger.addHandler(issue_collector)
 
     return logger
 
@@ -162,7 +191,8 @@ def run_table(cfg, section, conn, logger):
     )
 
     rows = df.to_dict(orient="records")
-    result = load_swap(conn, target, rows, logger, columns=columns)
+    actual_columns = list(df.columns)
+    result = load_swap(conn, target, rows, logger, columns=actual_columns)
     logger.info("Table %s complete: %d rows loaded", section, result["loaded"])
 
 
@@ -182,6 +212,7 @@ def main():
         max_bytes = int(cfg["logging"].get("max_bytes", 10_485_760))
         backup_count = int(cfg["logging"].get("backup_count", 5))
 
+        issue_collector.reset()  # Reset from any previous run
         logger = setup_logger(log_dir, max_bytes=max_bytes, backup_count=backup_count)
         logger.info("PubLog Importer started")
 
@@ -214,13 +245,29 @@ def main():
                 logger.error("Table %s failed: %s", section, exc)
                 failed_tables.append(section)
 
-        if failed_tables:
-            logger.error(
-                "Pipeline complete with errors. Failed tables: %s", failed_tables
-            )
+        # Print a clear end-of-run summary
+        print("")
+        print("=" * 60)
+
+        if failed_tables or issue_collector.has_issues:
+            if issue_collector.errors:
+                print(f"  ERRORS ({len(issue_collector.errors)}):")
+                for msg in issue_collector.errors:
+                    print(f"    - {msg}")
+
+            if issue_collector.warnings:
+                print(f"  WARNINGS ({len(issue_collector.warnings)}):")
+                for msg in issue_collector.warnings:
+                    print(f"    - {msg}")
+
+            if failed_tables:
+                print(f"  FAILED TABLES: {', '.join(failed_tables)}")
+
+            print("=" * 60)
             sys.exit(1)
         else:
-            logger.info("Pipeline complete. All tables succeeded.")
+            print("  Pipeline complete. All tables succeeded.")
+            print("=" * 60)
             sys.exit(0)
 
     except SystemExit:

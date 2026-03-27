@@ -102,7 +102,7 @@ def tmp_config_multitable(tmp_path):
         "zip_name": "MOE_RULE.zip",
         "csv_name": "V_MOE_RULE.CSV",
         "target_table": "V_MOE_RULE_TESTING",
-        "columns": "NIIN,IMC,AMC,PICA_LOA,SICA_LOA,AAC,AMSC,NIMSC,IMCA,SUBMTR,SICA,MOE_CD,PICA,DSOR,DT_ASGND,AUTH_COLLAB,AUTH_RCVR,SUPP_RCVR,FMR_MOE_RL,MOE_RL,SUPP_COLLAB",
+        "columns": "NIIN,IMC,AMC,PICA_LOA,SICA_LOA,AAC,AMSC,NIMSC,IMCA,SICA,MOE_CD,PICA,DSOR,DT_ASGND,AUTH_COLLAB,FMR_MOE_RL,MOE_RL,SUPP_COLLAB",
         "key_columns": "NIIN",
         "date_columns": "DT_ASGND",
         "date_format": "dd-MMM-yy",

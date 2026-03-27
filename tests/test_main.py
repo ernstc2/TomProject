@@ -305,7 +305,7 @@ def test_run_table_passes_config_to_load_csv(tmp_config_multitable, tmp_log_dir,
 
     importer.run_table(cfg, "V_MOE_RULE", conn, logger)
 
-    assert captured["required_columns"] == ["NIIN", "IMC", "AMC", "PICA_LOA", "SICA_LOA", "AAC", "AMSC", "NIMSC", "IMCA", "SUBMTR", "SICA", "MOE_CD", "PICA", "DSOR", "DT_ASGND", "AUTH_COLLAB", "AUTH_RCVR", "SUPP_RCVR", "FMR_MOE_RL", "MOE_RL", "SUPP_COLLAB"]
+    assert captured["required_columns"] == ["NIIN", "IMC", "AMC", "PICA_LOA", "SICA_LOA", "AAC", "AMSC", "NIMSC", "IMCA", "SICA", "MOE_CD", "PICA", "DSOR", "DT_ASGND", "AUTH_COLLAB", "FMR_MOE_RL", "MOE_RL", "SUPP_COLLAB"]
     assert captured["date_columns"] == ["DT_ASGND"]
     assert captured["date_format"] == "dd-MMM-yy"
 

@@ -86,8 +86,10 @@ def get_connection(cfg):
             f"PWD={password};"
             f"Encrypt={encrypt};"
             f"TrustServerCertificate={trust_cert};"
+            f"Connection Timeout=60;"
         )
-        conn = pyodbc.connect(conn_str)
+        conn = pyodbc.connect(conn_str, timeout=60)
+        conn.timeout = 900  # 15-minute command timeout
         _logger.info("Connected via pyodbc to %s/%s", server, database)
 
     conn.autocommit = False
@@ -450,7 +452,7 @@ def load_swap(conn, table, rows, logger=None, columns=None):
         conn.commit()
         log.info("Converted empty strings to NULL in %s", new_table)
 
-        # 4. Swap tables
+        # 4. Swap tables (all in one transaction so failure is atomic)
         cursor.execute(
             "SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = ?",
             (table,),
@@ -458,18 +460,14 @@ def load_swap(conn, table, rows, logger=None, columns=None):
         current_exists = cursor.fetchone() is not None
 
         if current_exists:
-            # Check if current table has data before dropping _PRIOR
-            cursor.execute(f"SELECT COUNT(*) FROM {table}")
-            current_count = cursor.fetchone()[0]
+            # Quick existence check — no need to count every row
+            cursor.execute(f"SELECT TOP 1 1 FROM {table}")
+            has_data = cursor.fetchone() is not None
 
-            if current_count > 0:
+            if has_data:
                 # Safe to replace _PRIOR — current table has data
                 cursor.execute(f"DROP TABLE IF EXISTS {prior_table}")
-                conn.commit()
-                log.info(
-                    "Dropped old %s (%s has %d rows to replace it)",
-                    prior_table, table, current_count,
-                )
+                log.info("Dropped old %s", prior_table)
             else:
                 # Current table is empty — keep _PRIOR as safety net
                 log.warning(

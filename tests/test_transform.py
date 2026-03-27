@@ -283,19 +283,21 @@ class TestGeneralizedColumnValidation:
         assert list(df.columns) == ["NIIN", "MOE_RULE", "DT_ASGND", "SOS"]
         assert len(df) == 1
 
-    def test_custom_required_columns_missing(self, tmp_path, caplog):
-        """CSV missing a required_columns entry raises SystemExit(1) and logs the missing name."""
+    def test_custom_required_columns_missing_warns_and_continues(self, tmp_path, caplog):
+        """CSV missing a required_columns entry logs a warning and continues with available columns."""
         content = (
             "NIIN,MOE_RULE\n"
             "000000042,RULE1\n"
         )
         path = _make_csv(tmp_path, content)
         logger = logging.getLogger("test_custom_missing")
-        with caplog.at_level(logging.ERROR, logger="test_custom_missing"):
-            with pytest.raises(SystemExit) as exc_info:
-                load_csv(path, logger=logger, required_columns=["NIIN", "MOE_RULE", "DT_ASGND", "SOS"])
-        assert exc_info.value.code == 1
+        with caplog.at_level(logging.WARNING, logger="test_custom_missing"):
+            df = load_csv(path, logger=logger, required_columns=["NIIN", "MOE_RULE", "DT_ASGND", "SOS"])
         assert "DT_ASGND" in caplog.text
+        assert "SOS" in caplog.text
+        # Only available columns should be in the result
+        assert list(df.columns) == ["NIIN", "MOE_RULE"]
+        assert len(df) == 1
 
     def test_default_required_columns_unchanged(self, tmp_path):
         """load_csv with no required_columns kwarg still validates the default 4 columns."""

@@ -145,10 +145,14 @@ def _detect_delimiter(path, sample_bytes=8192):
 
 
 def _validate_columns(df, required=None, logger=None):
-    """Raise SystemExit(1) if any required columns are absent from *df*.
+    """Check that required columns are present in *df*.
 
-    All missing column names are logged at ERROR level before exiting so the
-    operator can fix the source file in one pass.
+    When *required* is provided (config-driven tables), missing columns are
+    logged as warnings and removed from the required list so the pipeline can
+    continue with whatever columns are available.
+
+    When *required* is None (legacy V_CHARACTERISTICS path), missing columns
+    still raise SystemExit(1) because that table's schema is fixed.
 
     Args:
         df: pandas DataFrame whose columns are to be checked.
@@ -156,16 +160,24 @@ def _validate_columns(df, required=None, logger=None):
             REQUIRED_COLUMNS constant when None (backwards compatibility).
         logger: Optional stdlib logger.  Falls back to the module logger.
 
+    Returns:
+        List of missing column names (empty if all present).
+
     Raises:
-        SystemExit(1): When one or more required columns are missing.
+        SystemExit(1): Only when required is None and columns are missing.
     """
     log = logger if logger is not None else _log
     req = REQUIRED_COLUMNS if required is None else set(required)
     missing = req - set(df.columns)
     if missing:
-        for col in sorted(missing):
-            log.error("Required column missing from CSV: %s", col)
-        raise SystemExit(1)
+        if required is None:
+            for col in sorted(missing):
+                log.error("Required column missing from CSV: %s", col)
+            raise SystemExit(1)
+        else:
+            for col in sorted(missing):
+                log.warning("Column missing from CSV (skipping): %s", col)
+    return sorted(missing) if missing else []
 
 
 def _normalize_numeric(value):
@@ -230,7 +242,11 @@ def load_csv(path, logger=None, required_columns=None, date_columns=None, date_f
         keep_default_na=False,
     )
 
-    _validate_columns(df, required=required_columns, logger=log)
+    missing = _validate_columns(df, required=required_columns, logger=log)
+
+    # Remove missing columns from the working list so downstream steps skip them.
+    if required_columns and missing:
+        required_columns = [c for c in required_columns if c not in missing]
 
     # Date conversion: legacy path when no required_columns (backwards compat),
     # or config-driven path when required_columns is provided.
