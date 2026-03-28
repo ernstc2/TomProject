@@ -425,9 +425,12 @@ def load_swap(conn, table, rows, logger=None, columns=None):
         log.info("Created %s for bulk load", new_table)
 
         # 2. Bulk-load all rows into the new table
-        cursor.fast_executemany = True
-        import pyodbc as _pyodbc
-        cursor.setinputsizes([(_pyodbc.SQL_VARCHAR, 0, 0)] * len(columns))
+        # pyodbc needs fast_executemany + setinputsizes to handle varchar(max);
+        # mssql-python infers sizes by scanning all rows — no configuration needed.
+        if 'pyodbc' in type(conn).__module__:
+            cursor.fast_executemany = True
+            import pyodbc as _pyodbc
+            cursor.setinputsizes([(_pyodbc.SQL_VARCHAR, 0, 0)] * len(columns))
 
         col_list = ", ".join(f"[{col}]" for col in columns)
         placeholders = ", ".join("?" * len(columns))
