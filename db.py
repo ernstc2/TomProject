@@ -101,12 +101,9 @@ def ensure_table(conn, table):
 
     The table schema matches production exactly:
         NIIN                   varchar(50)   NOT NULL
-        MRC                    varchar(max)  NOT NULL
-        REQUIREMENTS_STATEMENT varchar(max)  NULL
-        CLEAR_TEXT_REPLY       varchar(max)  NULL
-
-    No PRIMARY KEY constraint is created because MRC is varchar(max), which
-    exceeds SQL Server's 900-byte index key limit.
+        MRC                    varchar(150)  NOT NULL
+        REQUIREMENTS_STATEMENT varchar(150)  NULL
+        CLEAR_TEXT_REPLY       varchar(150)  NULL
 
     Args:
         conn:  An open database connection.
@@ -127,9 +124,9 @@ def ensure_table(conn, table):
             f"""
             CREATE TABLE {table} (
                 NIIN                    varchar(50)   NOT NULL,
-                MRC                     varchar(max)  NOT NULL,
-                REQUIREMENTS_STATEMENT  varchar(max)  NULL,
-                CLEAR_TEXT_REPLY        varchar(max)  NULL
+                MRC                     varchar(150)  NOT NULL,
+                REQUIREMENTS_STATEMENT  varchar(150)  NULL,
+                CLEAR_TEXT_REPLY        varchar(150)  NULL
             )
             """
         )
@@ -370,7 +367,8 @@ def upsert_bulk(conn, table, rows, logger=None):
         raise
 
 
-def load_swap(conn, table, rows, logger=None, columns=None):
+def load_swap(conn, table, rows, logger=None, columns=None, index_columns=None,
+              column_size=150):
     """Full table replacement via bulk load + rename, preserving prior data.
 
     Strategy:
@@ -378,6 +376,7 @@ def load_swap(conn, table, rows, logger=None, columns=None):
       2. Only drop _PRIOR if the current table has data (safety check).
       3. Rename the current table to _PRIOR.
       4. Rename the new table to the real name.
+      5. Create non-clustered indexes on specified columns.
 
     The _PRIOR table is kept as a backup of the previous dataset.
     The rename is a metadata-only operation, so users lose access for
@@ -390,6 +389,9 @@ def load_swap(conn, table, rows, logger=None, columns=None):
         logger:  Optional logger; falls back to module-level logger if None.
         columns: Ordered list of column names to include. If None, inferred
                  from the first row's dict keys. Drives CREATE TABLE and INSERT.
+        index_columns: List of column names to create non-clustered indexes on
+                       after the swap completes. If None, no indexes are created.
+        column_size: varchar size for columns in the new table (default 500).
 
     Returns:
         dict: {"loaded": N}
@@ -412,8 +414,15 @@ def load_swap(conn, table, rows, logger=None, columns=None):
         cursor.execute(f"DROP TABLE IF EXISTS {new_table}")
         conn.commit()
 
-        # 1. Create the new table with dynamic columns (all varchar(max) NULL)
-        col_defs = ",\n                ".join(f"[{col}] varchar(max) NULL" for col in columns)
+        # 1. Create the new table with dynamic columns
+        # Indexed columns cannot be varchar(max) — cap them at varchar(900)
+        index_set = set(index_columns or [])
+        default_type = "varchar(max)" if column_size == 0 else f"varchar({column_size})"
+        def _col_type(col):
+            if column_size == 0 and col in index_set:
+                return "varchar(900)"
+            return default_type
+        col_defs = ",\n                ".join(f"[{col}] {_col_type(col)} NULL" for col in columns)
         cursor.execute(
             f"""
             CREATE TABLE {new_table} (
@@ -425,12 +434,16 @@ def load_swap(conn, table, rows, logger=None, columns=None):
         log.info("Created %s for bulk load", new_table)
 
         # 2. Bulk-load all rows into the new table
-        # pyodbc needs fast_executemany + setinputsizes to handle varchar(max);
+        # pyodbc needs fast_executemany for bulk performance;
         # mssql-python infers sizes by scanning all rows — no configuration needed.
         if 'pyodbc' in type(conn).__module__:
             cursor.fast_executemany = True
+            # Explicit sizes prevent pyodbc from guessing buffer sizes based on
+            # the first batch — which causes truncation if later rows are longer.
             import pyodbc as _pyodbc
-            cursor.setinputsizes([(_pyodbc.SQL_VARCHAR, 0, 0)] * len(columns))
+            cursor.setinputsizes(
+                [(_pyodbc.SQL_VARCHAR, 0, 0)] * len(columns)
+            )
 
         col_list = ", ".join(f"[{col}]" for col in columns)
         placeholders = ", ".join("?" * len(columns))
@@ -484,6 +497,15 @@ def load_swap(conn, table, rows, logger=None, columns=None):
         cursor.execute(f"EXEC sp_rename '{new_table}', '{table}'")
         conn.commit()
         log.info("Table swap complete: %s is now live", table)
+
+        # 5. Create non-clustered indexes on specified columns
+        for idx_col in (index_columns or []):
+            idx_name = f"IX_{table}_{idx_col}"
+            cursor.execute(
+                f"CREATE NONCLUSTERED INDEX [{idx_name}] ON [{table}] ([{idx_col}])"
+            )
+            conn.commit()
+            log.info("Created index %s on %s", idx_name, table)
 
         log.info("Load-swap complete: %d rows loaded into %s", total, table)
         return {"loaded": total}

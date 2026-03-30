@@ -26,6 +26,8 @@ key_columns   = NIIN,MRC
 date_columns  = CLEAR_TEXT_REPLY
 date_format   = dd-MMM-yy
 drop_columns  =
+index_columns = NIIN
+column_size   = 0
 
 [V_CAGE_STATUS_AND_TYPE]
 download_url  = https://www.dla.mil/Information-Operations/FLIS-Data-Electronic-Reading-Room/
@@ -48,7 +50,9 @@ key_columns   = NIIN
 date_columns  = EFFECTIVE_DATE
 date_format   = dd-MMM-yyyy
 drop_columns  = ROW_OBS_DT
+index_columns = NIIN
 numeric_columns = UNIT_PRICE
+index_columns   = NIIN
 
 [V_MOE_RULE]
 download_url  = https://www.dla.mil/Information-Operations/FLIS-Data-Electronic-Reading-Room/
@@ -60,3 +64,4 @@ key_columns   = NIIN
 date_columns  = DT_ASGND
 date_format   = dd-MMM-yy
 drop_columns  = ROW_OBS_DT
+index_columns = NIIN

@@ -175,6 +175,8 @@ def run_table(cfg, section, conn, logger):
     date_cols = parse_list(table_cfg.get("date_columns", ""))
     date_fmt = table_cfg.get("date_format", "").strip()
     numeric_cols = parse_list(table_cfg.get("numeric_columns", ""))
+    index_cols = parse_list(table_cfg.get("index_columns", ""))
+    col_size = int(table_cfg.get("column_size", "500"))
     work_dir = cfg["paths"]["work_dir"]
 
     logger.info("Downloading %s", url)
@@ -192,7 +194,9 @@ def run_table(cfg, section, conn, logger):
 
     rows = df.to_dict(orient="records")
     actual_columns = list(df.columns)
-    result = load_swap(conn, target, rows, logger, columns=actual_columns)
+    result = load_swap(conn, target, rows, logger, columns=actual_columns,
+                       index_columns=index_cols or None,
+                       column_size=col_size)
     logger.info("Table %s complete: %d rows loaded", section, result["loaded"])
 
 
@@ -268,7 +272,8 @@ def main():
             print("=" * 60)
             sys.exit(1)
         else:
-            print("  Pipeline complete. All tables succeeded.")
+            logger.info("Pipeline complete. All tables succeeded — no errors or warnings.")
+            print("  Pipeline complete. All tables succeeded — no errors or warnings.")
             print("=" * 60)
             sys.exit(0)
 
