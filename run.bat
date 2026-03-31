@@ -12,7 +12,7 @@ REM DO NOT use relative paths -- Task Scheduler runs from System32 by default.
 REM DO NOT remove the "exit /b" line -- it propagates Python's exit code to Task Scheduler.
 
 cd /d "%~dp0"
-"C:\Python313\python.exe" "%~dp0importer.py"
+"C:\Python314\python.exe" "%~dp0importer.py"
 
 if %ERRORLEVEL% NEQ 0 (
     pause
