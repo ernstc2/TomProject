@@ -52,7 +52,6 @@ date_format   = dd-MMM-yyyy
 drop_columns  = ROW_OBS_DT
 index_columns = NIIN
 numeric_columns = UNIT_PRICE
-index_columns   = NIIN
 
 [V_MOE_RULE]
 download_url  = https://www.dla.mil/Information-Operations/FLIS-Data-Electronic-Reading-Room/
