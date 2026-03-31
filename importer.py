@@ -176,7 +176,7 @@ def run_table(cfg, section, conn, logger):
     date_fmt = table_cfg.get("date_format", "").strip()
     numeric_cols = parse_list(table_cfg.get("numeric_columns", ""))
     index_cols = parse_list(table_cfg.get("index_columns", ""))
-    col_size = int(table_cfg.get("column_size", "500"))
+    col_size = int(table_cfg.get("column_size", "150"))
     work_dir = cfg["paths"]["work_dir"]
 
     logger.info("Downloading %s", url)
