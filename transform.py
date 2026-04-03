@@ -194,6 +194,78 @@ def _normalize_numeric(value):
     return stripped
 
 
+def _count_lines(path):
+    """Count the number of data rows in a file (excludes header).
+
+    Reads raw bytes and counts newlines — fast even for files with
+    hundreds of millions of rows since no parsing is done.
+    """
+    count = 0
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1_048_576), b""):
+            count += chunk.count(b"\n")
+    return max(count - 1, 0)  # subtract 1 for header row
+
+
+def stream_csv(path, logger=None, required_columns=None, date_columns=None,
+               date_format=None, numeric_columns=None, chunksize=500_000):
+    """Stream a CSV file as transformed DataFrame chunks.
+
+    Reads the file in chunks of *chunksize* rows, applying the same transforms
+    as load_csv (column validation, date conversion, numeric normalization,
+    column subsetting) to each chunk.  Only one chunk is in memory at a time,
+    so this can handle files with hundreds of millions of rows.
+
+    Yields:
+        (chunk_df, actual_columns, total_lines) tuples.  *actual_columns* is
+        the resolved column list (same for every chunk).  *total_lines* is
+        the total row count for progress reporting.
+
+    All other args match load_csv.
+    """
+    log = logger if logger is not None else _log
+
+    import os
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"CSV file not found: {path}")
+
+    delimiter = _detect_delimiter(path)
+    actual_columns = None
+    total_rows = 0
+    total_lines = _count_lines(path)
+
+    for chunk_df in pd.read_csv(path, sep=delimiter, dtype=str,
+                                keep_default_na=False, chunksize=chunksize):
+        # Validate columns on first chunk only
+        if actual_columns is None:
+            missing = _validate_columns(chunk_df, required=required_columns, logger=log)
+            if required_columns and missing:
+                required_columns = [c for c in required_columns if c not in missing]
+            actual_columns = list(required_columns) if required_columns else list(chunk_df.columns)
+
+        # Date conversion
+        if required_columns is None:
+            chunk_df = _convert_dates(chunk_df)
+        elif date_columns and date_format:
+            chunk_df = _apply_date_conversion(chunk_df, date_columns, date_format)
+
+        # Numeric normalization
+        if numeric_columns:
+            chunk_df = chunk_df.copy()
+            for col in numeric_columns:
+                if col in chunk_df.columns:
+                    chunk_df[col] = chunk_df[col].map(_normalize_numeric)
+
+        # Subset columns
+        if required_columns:
+            chunk_df = chunk_df[actual_columns]
+
+        total_rows += len(chunk_df)
+        yield chunk_df, actual_columns, total_lines
+
+    log.info("Loaded %d rows from %s", total_rows, path)
+
+
 def load_csv(path, logger=None, required_columns=None, date_columns=None, date_format=None, numeric_columns=None):
     """Load a DLA characteristics CSV file and return a validated DataFrame.
 

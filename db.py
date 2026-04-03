@@ -367,8 +367,8 @@ def upsert_bulk(conn, table, rows, logger=None):
         raise
 
 
-def load_swap(conn, table, rows, logger=None, columns=None, index_columns=None,
-              column_size=150):
+def load_swap(conn, table, rows=None, logger=None, columns=None, index_columns=None,
+              column_size=150, chunks=None):
     """Full table replacement via bulk load + rename, preserving prior data.
 
     Strategy:
@@ -382,6 +382,11 @@ def load_swap(conn, table, rows, logger=None, columns=None, index_columns=None,
     The rename is a metadata-only operation, so users lose access for
     milliseconds instead of the entire load duration.
 
+    Accepts data in two forms (supply one):
+      - rows:   List of dicts (legacy, loads all data into memory).
+      - chunks: Iterable of (DataFrame, columns) tuples from stream_csv.
+                Only one chunk is in memory at a time.
+
     Args:
         conn:    An open database connection with autocommit=False.
         table:   Target table name (e.g. "V_CHARACTERISTICS").
@@ -392,6 +397,7 @@ def load_swap(conn, table, rows, logger=None, columns=None, index_columns=None,
         index_columns: List of column names to create non-clustered indexes on
                        after the swap completes. If None, no indexes are created.
         column_size: varchar size for columns in the new table (default 500).
+        chunks:  Iterable of (DataFrame, columns_list) tuples for streaming mode.
 
     Returns:
         dict: {"loaded": N}
@@ -401,9 +407,10 @@ def load_swap(conn, table, rows, logger=None, columns=None, index_columns=None,
     """
     log = logger if logger is not None else _logger
 
-    # Resolve columns: use provided list or infer from first row
-    if columns is None:
-        columns = list(rows[0].keys()) if rows else []
+    # Resolve columns for legacy mode; streaming mode gets them from chunks
+    if chunks is None:
+        if columns is None:
+            columns = list(rows[0].keys()) if rows else []
 
     new_table = f"{table}_NEW"
     prior_table = f"{table}_PRIOR"
@@ -414,53 +421,108 @@ def load_swap(conn, table, rows, logger=None, columns=None, index_columns=None,
         cursor.execute(f"DROP TABLE IF EXISTS {new_table}")
         conn.commit()
 
-        # 1. Create the new table with dynamic columns
-        # Indexed columns cannot be varchar(max) — cap them at varchar(900)
-        index_set = set(index_columns or [])
-        default_type = "varchar(max)" if column_size == 0 else f"varchar({column_size})"
-        def _col_type(col):
-            if column_size == 0 and col in index_set:
-                return "varchar(900)"
-            return default_type
-        col_defs = ",\n                ".join(f"[{col}] {_col_type(col)} NULL" for col in columns)
-        cursor.execute(
-            f"""
-            CREATE TABLE {new_table} (
-                {col_defs}
+        if chunks is not None:
+            # --- Streaming mode: process one chunk at a time ---
+            total = 0
+            table_created = False
+
+            for chunk_df, chunk_columns, total_expected in chunks:
+                if not table_created:
+                    columns = chunk_columns
+                    # Create the new table
+                    index_set = set(index_columns or [])
+                    default_type = "varchar(max)" if column_size == 0 else f"varchar({column_size})"
+                    def _col_type(col):
+                        if column_size == 0 and col in index_set:
+                            return "varchar(900)"
+                        return default_type
+                    col_defs = ",\n                ".join(
+                        f"[{col}] {_col_type(col)} NULL" for col in columns
+                    )
+                    cursor.execute(f"""
+                        CREATE TABLE {new_table} (
+                            {col_defs}
+                        )
+                    """)
+                    conn.commit()
+                    log.info("Created %s for bulk load", new_table)
+
+                    # Configure driver for bulk inserts
+                    if 'pyodbc' in type(conn).__module__:
+                        cursor.fast_executemany = True
+                        import pyodbc as _pyodbc
+                        cursor.setinputsizes(
+                            [(_pyodbc.SQL_VARCHAR, 0, 0)] * len(columns)
+                        )
+
+                    col_list = ", ".join(f"[{col}]" for col in columns)
+                    placeholders = ", ".join("?" * len(columns))
+                    insert_sql = f"INSERT INTO {new_table} ({col_list}) VALUES ({placeholders})"
+                    table_created = True
+
+                # Insert this chunk in sub-batches
+                chunk_rows = chunk_df.values.tolist()
+                for i in range(0, len(chunk_rows), _BULK_CHUNK):
+                    batch = chunk_rows[i : i + _BULK_CHUNK]
+                    cursor.executemany(insert_sql, batch)
+
+                total += len(chunk_rows)
+                conn.commit()
+                if total_expected > 0:
+                    pct = total / total_expected * 100
+                    log.info("Bulk load progress: %d / %d rows (%.1f%%)", total, total_expected, pct)
+                else:
+                    log.info("Bulk load progress: %d rows loaded so far", total)
+
+            if not table_created:
+                raise ValueError("No data chunks received — nothing to load")
+
+            log.info("Bulk load complete: %d rows in %s", total, new_table)
+
+        else:
+            # --- Legacy mode: all rows in memory ---
+            # 1. Create the new table with dynamic columns
+            index_set = set(index_columns or [])
+            default_type = "varchar(max)" if column_size == 0 else f"varchar({column_size})"
+            def _col_type(col):
+                if column_size == 0 and col in index_set:
+                    return "varchar(900)"
+                return default_type
+            col_defs = ",\n                ".join(f"[{col}] {_col_type(col)} NULL" for col in columns)
+            cursor.execute(
+                f"""
+                CREATE TABLE {new_table} (
+                    {col_defs}
+                )
+                """
             )
-            """
-        )
-        conn.commit()
-        log.info("Created %s for bulk load", new_table)
+            conn.commit()
+            log.info("Created %s for bulk load", new_table)
 
-        # 2. Bulk-load all rows into the new table
-        # pyodbc needs fast_executemany for bulk performance;
-        # mssql-python infers sizes by scanning all rows — no configuration needed.
-        if 'pyodbc' in type(conn).__module__:
-            cursor.fast_executemany = True
-            # Explicit sizes prevent pyodbc from guessing buffer sizes based on
-            # the first batch — which causes truncation if later rows are longer.
-            import pyodbc as _pyodbc
-            cursor.setinputsizes(
-                [(_pyodbc.SQL_VARCHAR, 0, 0)] * len(columns)
-            )
+            # 2. Bulk-load all rows into the new table
+            if 'pyodbc' in type(conn).__module__:
+                cursor.fast_executemany = True
+                import pyodbc as _pyodbc
+                cursor.setinputsizes(
+                    [(_pyodbc.SQL_VARCHAR, 0, 0)] * len(columns)
+                )
 
-        col_list = ", ".join(f"[{col}]" for col in columns)
-        placeholders = ", ".join("?" * len(columns))
-        insert_sql = f"INSERT INTO {new_table} ({col_list}) VALUES ({placeholders})"
+            col_list = ", ".join(f"[{col}]" for col in columns)
+            placeholders = ", ".join("?" * len(columns))
+            insert_sql = f"INSERT INTO {new_table} ({col_list}) VALUES ({placeholders})"
 
-        total = len(rows)
-        for i in range(0, total, _BULK_CHUNK):
-            chunk = rows[i : i + _BULK_CHUNK]
-            params = [tuple(r[col] for col in columns) for r in chunk]
-            cursor.executemany(insert_sql, params)
-            if (i // _BULK_CHUNK) % 100 == 0:
-                loaded = min(i + _BULK_CHUNK, total)
-                pct = loaded / total * 100
-                log.info("Bulk load progress: %d / %d rows (%.1f%%)", loaded, total, pct)
+            total = len(rows)
+            for i in range(0, total, _BULK_CHUNK):
+                chunk = rows[i : i + _BULK_CHUNK]
+                params = [tuple(r[col] for col in columns) for r in chunk]
+                cursor.executemany(insert_sql, params)
+                if (i // _BULK_CHUNK) % 100 == 0:
+                    loaded = min(i + _BULK_CHUNK, total)
+                    pct = loaded / total * 100
+                    log.info("Bulk load progress: %d / %d rows (%.1f%%)", loaded, total, pct)
 
-        conn.commit()
-        log.info("Bulk load complete: %d rows in %s (100.0%%)", total, new_table)
+            conn.commit()
+            log.info("Bulk load complete: %d rows in %s (100.0%%)", total, new_table)
 
         # 3. Convert empty strings to NULL
         for col in columns:

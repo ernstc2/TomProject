@@ -13,7 +13,7 @@ from logging.handlers import RotatingFileHandler
 
 from db import get_connection, ensure_table, upsert_batch, upsert_bulk, load_swap, swap_mrc_columns
 from extract import extract_data
-from transform import load_csv
+from transform import load_csv, stream_csv
 
 
 def load_config(path="config.ini"):
@@ -183,7 +183,7 @@ def run_table(cfg, section, conn, logger):
     csv_path = extract_data(url, work_dir, logger, zip_name=zip_name, csv_name=csv_name)
 
     logger.info("Loading CSV: %s", csv_path)
-    df = load_csv(
+    chunks = stream_csv(
         csv_path,
         logger=logger,
         required_columns=columns or None,
@@ -192,11 +192,10 @@ def run_table(cfg, section, conn, logger):
         numeric_columns=numeric_cols or None,
     )
 
-    rows = df.to_dict(orient="records")
-    actual_columns = list(df.columns)
-    result = load_swap(conn, target, rows, logger, columns=actual_columns,
+    result = load_swap(conn, target, logger=logger,
                        index_columns=index_cols or None,
-                       column_size=col_size)
+                       column_size=col_size,
+                       chunks=chunks)
     logger.info("Table %s complete: %d rows loaded", section, result["loaded"])
 
 
