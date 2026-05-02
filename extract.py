@@ -7,7 +7,7 @@ to bypass Akamai bot detection on the DLA website.
 import logging
 import os
 import zipfile
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 import lxml.html
 from curl_cffi import requests as cffi_requests
@@ -20,7 +20,8 @@ def _resolve_download_url(page_url, logger, zip_name="Characteristics.zip", time
     """Scrape the DLA reading room page and return the download link for zip_name.
 
     Fetches *page_url* using Chrome TLS impersonation, parses the HTML,
-    and finds an <a> tag whose href ends with zip_name (case-insensitive).
+    and finds an <a> tag whose URL path ends with zip_name (case-insensitive,
+    ignoring query strings and fragments).
 
     Args:
         page_url: URL of the DLA FLIS Electronic Reading Room page.
@@ -42,17 +43,29 @@ def _resolve_download_url(page_url, logger, zip_name="Characteristics.zip", time
         logger.error("Error fetching reading room page: %s", exc)
         raise SystemExit(1) from exc
 
-    target_suffix = zip_name.lower()
+    target = zip_name.lower()
     doc = lxml.html.fromstring(resp.text)
+    zip_links = []
     for link in doc.iterlinks():
         _element, _attr, href, _pos = link
-        href_lower = href.lower()
-        if href_lower.endswith(target_suffix):
-            download_url = urljoin(page_url, href)
+        # Strip query string and fragment so ?ver=... doesn't break matching
+        parsed = urlparse(href)
+        path = parsed.path.lower()
+        if path.endswith(target):
+            # Strip query string (?ver=...) — DLA's cache-buster tokens go
+            # stale and cause 404s, but the base URL still serves the file.
+            clean_href = parsed._replace(query="", fragment="").geturl()
+            download_url = urljoin(page_url, clean_href)
             logger.info("Resolved download URL: %s", download_url)
             return download_url
+        if path.endswith(".zip"):
+            zip_links.append(href)
 
     logger.error("No %s link found on page: %s", zip_name, page_url)
+    if zip_links:
+        logger.error("Zip links found on page: %s", zip_links)
+    else:
+        logger.error("No .zip links found on page at all — page structure may have changed")
     raise SystemExit(1)
 
 
