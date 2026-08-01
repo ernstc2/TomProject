@@ -45,7 +45,10 @@ download_url  = https://www.dla.mil/Information-Operations/FLIS-Data-Electronic-
 zip_name      = MANAGEMENT.zip
 csv_name      = V_FLIS_MANAGEMENT.CSV
 target_table  = V_MANAGEMENT
-columns       = NIIN,REP_REC_CODE,REP_NET_PR,MOE,USC,SOSM,AAC,QUP,CIIC,SLC,UI_CONV_FAC,UI,SOS,EFFECTIVE_DATE,MGMT_CTL,UNIT_PRICE
+; DLA renamed REP_NET_PR -> NET_PRICE (Aug 2026). Select the new CSV name and
+; rename it back to REP_NET_PR so the DB column name stays stable downstream.
+columns       = NIIN,REP_REC_CODE,NET_PRICE,MOE,USC,SOSM,AAC,QUP,CIIC,SLC,UI_CONV_FAC,UI,SOS,EFFECTIVE_DATE,MGMT_CTL,UNIT_PRICE
+rename_columns = NET_PRICE:REP_NET_PR
 key_columns   = NIIN
 date_columns  = EFFECTIVE_DATE
 date_format   = dd-MMM-yyyy

@@ -208,18 +208,24 @@ def _count_lines(path):
 
 
 def stream_csv(path, logger=None, required_columns=None, date_columns=None,
-               date_format=None, numeric_columns=None, chunksize=500_000):
+               date_format=None, numeric_columns=None, rename_columns=None,
+               chunksize=500_000):
     """Stream a CSV file as transformed DataFrame chunks.
 
     Reads the file in chunks of *chunksize* rows, applying the same transforms
     as load_csv (column validation, date conversion, numeric normalization,
-    column subsetting) to each chunk.  Only one chunk is in memory at a time,
-    so this can handle files with hundreds of millions of rows.
+    column subsetting, column renaming) to each chunk.  Only one chunk is in
+    memory at a time, so this can handle files with hundreds of millions of rows.
+
+    *rename_columns* is an optional {csv_name: db_name} dict applied after
+    subsetting, so the emitted column list (and therefore the destination table
+    schema) uses the db_name while the transforms above still key off the
+    original CSV names.
 
     Yields:
-        (chunk_df, actual_columns, total_lines) tuples.  *actual_columns* is
-        the resolved column list (same for every chunk).  *total_lines* is
-        the total row count for progress reporting.
+        (chunk_df, output_columns, total_lines) tuples.  *output_columns* is
+        the resolved, post-rename column list (same for every chunk).
+        *total_lines* is the total row count for progress reporting.
 
     All other args match load_csv.
     """
@@ -231,6 +237,7 @@ def stream_csv(path, logger=None, required_columns=None, date_columns=None,
 
     delimiter = _detect_delimiter(path)
     actual_columns = None
+    output_columns = None
     total_rows = 0
     total_lines = _count_lines(path)
 
@@ -243,6 +250,9 @@ def stream_csv(path, logger=None, required_columns=None, date_columns=None,
             if required_columns and missing:
                 required_columns = [c for c in required_columns if c not in missing]
             actual_columns = list(required_columns) if required_columns else list(chunk_df.columns)
+            # Post-rename names drive the destination table schema.
+            output_columns = ([rename_columns.get(c, c) for c in actual_columns]
+                              if rename_columns else actual_columns)
 
         # Date conversion
         if required_columns is None:
@@ -261,8 +271,13 @@ def stream_csv(path, logger=None, required_columns=None, date_columns=None,
         if required_columns:
             chunk_df = chunk_df[actual_columns]
 
+        # Rename to destination column names (after subsetting so the transforms
+        # above still reference the original CSV column names).
+        if rename_columns:
+            chunk_df = chunk_df.rename(columns=rename_columns)
+
         total_rows += len(chunk_df)
-        yield chunk_df, actual_columns, total_lines
+        yield chunk_df, output_columns, total_lines
 
     # on_bad_lines="skip" silently drops rows whose field count doesn't match
     # the header (malformed source data, e.g. an un-escaped delimiter inside a

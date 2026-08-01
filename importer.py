@@ -68,6 +68,29 @@ def parse_list(value):
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
+def parse_map(value):
+    """Parse a comma-separated "src:dst" config string into a dict.
+
+    Used for rename_columns, e.g. "NET_PRICE:REP_NET_PR" maps the CSV column
+    NET_PRICE to the database column REP_NET_PR. Entries without a colon are
+    ignored.
+
+    Args:
+        value: A string like "SRC1:DST1,SRC2:DST2" or None.
+
+    Returns:
+        Dict of {src: dst} stripped strings. Returns {} for None or empty input.
+    """
+    result = {}
+    for item in parse_list(value):
+        if ":" in item:
+            src, dst = item.split(":", 1)
+            src, dst = src.strip(), dst.strip()
+            if src and dst:
+                result[src] = dst
+    return result
+
+
 def parse_args():
     """Parse command-line arguments.
 
@@ -176,6 +199,7 @@ def run_table(cfg, section, conn, logger):
     date_fmt = table_cfg.get("date_format", "").strip()
     numeric_cols = parse_list(table_cfg.get("numeric_columns", ""))
     index_cols = parse_list(table_cfg.get("index_columns", ""))
+    rename_cols = parse_map(table_cfg.get("rename_columns", ""))
     col_size = int(table_cfg.get("column_size", "150"))
     work_dir = cfg["paths"]["work_dir"]
 
@@ -190,6 +214,7 @@ def run_table(cfg, section, conn, logger):
         date_columns=date_cols or None,
         date_format=date_fmt or None,
         numeric_columns=numeric_cols or None,
+        rename_columns=rename_cols or None,
     )
 
     result = load_swap(conn, target, logger=logger,
