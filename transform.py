@@ -235,7 +235,8 @@ def stream_csv(path, logger=None, required_columns=None, date_columns=None,
     total_lines = _count_lines(path)
 
     for chunk_df in pd.read_csv(path, sep=delimiter, dtype=str,
-                                keep_default_na=False, chunksize=chunksize):
+                                keep_default_na=False, chunksize=chunksize,
+                                on_bad_lines="skip"):
         # Validate columns on first chunk only
         if actual_columns is None:
             missing = _validate_columns(chunk_df, required=required_columns, logger=log)
@@ -263,6 +264,12 @@ def stream_csv(path, logger=None, required_columns=None, date_columns=None,
         total_rows += len(chunk_df)
         yield chunk_df, actual_columns, total_lines
 
+    # on_bad_lines="skip" silently drops rows whose field count doesn't match
+    # the header (malformed source data, e.g. an un-escaped delimiter inside a
+    # free-text field). Surface how many were dropped so the loss is auditable.
+    skipped = total_lines - total_rows
+    if skipped > 0:
+        log.warning("Skipped %d malformed row(s) in %s", skipped, path)
     log.info("Loaded %d rows from %s", total_rows, path)
 
 
@@ -312,6 +319,7 @@ def load_csv(path, logger=None, required_columns=None, date_columns=None, date_f
         sep=delimiter,
         dtype=str,
         keep_default_na=False,
+        on_bad_lines="skip",
     )
 
     missing = _validate_columns(df, required=required_columns, logger=log)
